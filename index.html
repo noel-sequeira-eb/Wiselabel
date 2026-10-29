@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Labelwise</title>
+<meta name="theme-color" content="#1F5C44">
+<meta name="description" content="Scan food and cosmetics barcodes for a health score out of 100.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥬</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<style>
+:root{
+  --bg:#F3F7F4; --surface:#FFFFFF; --ink:#16352A; --muted:#5E7468; --line:#DCE6DF; --soft:#E8F0EA;
+  --brand:#1F5C44; --brand-ink:#FFFFFF;
+  --ex:#1E9E5A; --good:#7DBE52; --poor:#EE9230; --bad:#DE4437; --none:#A9B8AE;
+  color-scheme: light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1A15; --surface:#16251E; --ink:#E4EFE8; --muted:#94AA9D; --line:#26392F; --soft:#1C2E25;
+    --brand:#5FC795; --brand-ink:#0B1A12; --none:#5B6D62;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1A15; --surface:#16251E; --ink:#E4EFE8; --muted:#94AA9D; --line:#26392F; --soft:#1C2E25;
+  --brand:#5FC795; --brand-ink:#0B1A12; --none:#5B6D62;
+  color-scheme: dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);
+  font-family:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:8px}
+img{max-width:100%}
+.app{max-width:480px;margin:0 auto;padding:16px 18px 110px}
+
+/* top bar */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 22px}
+.mark{display:flex;align-items:center;gap:9px;font-weight:800;font-size:21px;letter-spacing:-.02em}
+.mark svg{flex:none}
+.seg{display:flex;background:var(--soft);border-radius:999px;padding:3px}
+.seg button{border:0;background:none;padding:7px 14px;border-radius:999px;font-weight:600;font-size:14px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(20,50,35,.12)}
+
+h1{font-size:34px;line-height:1.05;letter-spacing:-.03em;margin:0 0 8px;font-weight:800}
+.lede{color:var(--muted);margin:0 0 22px;max-width:36ch}
+
+/* capture */
+.capture{display:block;position:relative;border:2px dashed var(--line);background:var(--surface);border-radius:22px;
+  padding:26px 20px;text-align:center;cursor:pointer;transition:border-color .15s}
+.capture:hover{border-color:var(--brand)}
+.capture input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.capture .ico{width:56px;height:56px;border-radius:18px;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;margin:0 auto 12px}
+.capture strong{display:block;font-size:18px}
+.capture span{color:var(--muted);font-size:14px}
+.thumbs{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+.thumb{position:relative;width:76px;height:76px;border-radius:14px;overflow:hidden;background:var(--soft)}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb button{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:14px;line-height:1}
+.or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:14px;margin:18px 0}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.field{display:flex;gap:8px}
+.field input{flex:1;min-width:0;border:1.5px solid var(--line);background:var(--surface);border-radius:14px;padding:13px 14px}
+.field input:focus{outline:none;border-color:var(--brand)}
+.primary{border:0;background:var(--brand);color:var(--brand-ink);font-weight:700;border-radius:14px;padding:13px 18px;white-space:nowrap}
+.primary:disabled{opacity:.5;cursor:not-allowed}
+.wide{width:100%;margin-top:12px;padding:15px}
+.note{font-size:13px;color:var(--muted);margin-top:10px}
+.err{background:color-mix(in srgb,var(--bad) 12%,var(--surface));color:var(--ink);border-radius:14px;padding:12px 14px;margin-top:14px;font-size:14px}
+
+.examples{margin-top:30px}
+.examples h2,.sec h2{font-size:15px;font-weight:700;margin:0 0 10px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 13px;font-size:14px;font-weight:500;display:flex;align-items:center;gap:7px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--none)}
+
+/* loading */
+.loading{text-align:center;padding:60px 10px}
+.pulse{width:84px;height:84px;margin:0 auto 18px;border-radius:50%;border:6px solid var(--soft);border-top-color:var(--brand);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading p{color:var(--muted);margin:6px 0}
+.ghost{border:1.5px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 16px;font-weight:600;margin-top:16px}
+
+/* result */
+.back{border:0;background:none;padding:6px 0;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:12px}
+.pimg{width:58px;height:58px;object-fit:contain;border-radius:12px;background:#fff;float:right;margin:0 0 6px 10px}
+.hero{display:flex;gap:18px;align-items:center;background:var(--surface);border-radius:24px;padding:20px}
+.ring{position:relative;width:118px;height:118px;flex:none}
+.ring svg{transform:rotate(-90deg)}
+.ring .num{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.ring .num b{font-size:40px;font-weight:800;letter-spacing:-.04em;line-height:1}
+.ring .num small{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.ring circle.arc{transition:stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion: reduce){.ring circle.arc{transition:none}.pulse{animation-duration:3s}}
+.pname{font-size:22px;font-weight:700;line-height:1.15;letter-spacing:-.02em;margin:0}
+.pbrand{color:var(--muted);font-size:14px;margin:3px 0 10px}
+.verdict{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:15px}
+.summary{margin:16px 2px 4px;color:var(--ink)}
+.source{font-size:13px;color:var(--muted);margin:6px 2px 0}
+
+.sec{margin-top:26px}
+.rows{background:var(--surface);border-radius:20px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);width:100%;text-align:left;background:none;border-left:0;border-right:0;border-top:0}
+.row:last-child{border-bottom:0}
+.row .t{flex:1;min-width:0}
+.row .t b{display:block;font-weight:600}
+.row .t span{display:block;font-size:13px;color:var(--muted)}
+.row .v{font-weight:600;font-size:15px;white-space:nowrap}
+.row.expand{cursor:pointer}
+.chev{transition:transform .2s;color:var(--muted)}
+.row[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.sub{background:var(--soft);padding:4px 0}
+.sub .row{padding:11px 16px 11px 38px;border-bottom-color:var(--line)}
+.sub .row .t span{white-space:normal}
+
+.alt{display:flex;align-items:center;gap:14px}
+.mini{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:15px;color:#fff;flex:none}
+
+/* history */
+.empty{text-align:center;color:var(--muted);padding:50px 10px}
+.hist .row{cursor:pointer}
+.del{border:0;background:none;color:var(--muted);padding:6px 8px;border-radius:8px;font-size:18px}
+.del:hover{color:var(--bad)}
+.syncnote{font-size:13px;color:var(--muted);margin:10px 2px 0}
+
+/* tab bar */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:color-mix(in srgb,var(--surface) 92%,transparent);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-top:1px solid var(--line);
+  padding:8px 0 calc(8px + env(safe-area-inset-bottom,0px))}
+.tabs .in{max-width:480px;margin:0 auto;display:flex}
+.tabs button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;font-weight:600;color:var(--muted);padding:4px}
+.tabs button[aria-current="page"]{color:var(--brand)}
+.hide{display:none!important}
+.gcard{background:var(--surface);border-radius:20px;padding:16px}
+.gh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;font-size:14px;color:var(--muted)}
+.seg.small button{padding:5px 11px;font-size:13px}
+.gbar{padding:11px 0;border-bottom:1px solid var(--line)}
+.gbar:last-of-type{border-bottom:0}
+.gtop{display:flex;justify-content:space-between;gap:10px;font-size:15px;margin-bottom:7px}
+.gtop span{color:var(--muted);font-size:14px;text-align:right}
+.gtop strong{color:var(--ink)}
+.track{position:relative;height:9px;border-radius:9px;background:var(--soft)}
+.fill{height:100%;border-radius:9px;transition:width .6s ease}
+.tick{position:absolute;top:-3px;width:2px;height:15px;background:var(--ink);opacity:.55;border-radius:2px}
+.gbar small{display:block;font-size:12.5px;color:var(--muted);margin-top:6px}
+.gnote{font-size:13px;color:var(--muted);margin:10px 0 0}
+.sec h3{font-size:15px;font-weight:700;margin:20px 0 10px;color:var(--muted)}
+.tls{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tl{background:var(--surface);border-radius:16px;padding:10px 6px;text-align:center;border-top:6px solid var(--c)}
+.tl span{display:block;font-size:12.5px;color:var(--muted)}
+.tl b{display:block;font-size:17px;margin:2px 0}
+.tl em{font-style:normal;font-size:13px;font-weight:700;color:var(--c)}
+.mark-ok{color:var(--ex);font-weight:800;width:18px;text-align:center}
+.mark-no{color:var(--none);font-weight:800;width:18px;text-align:center}
+.badge{font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.badge.banned{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+.badge.restricted{background:color-mix(in srgb,var(--poor) 18%,transparent);color:var(--poor)}
+.tw{overflow-x:auto;background:var(--surface);border-radius:20px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:700;color:var(--muted);font-size:13px}
+tr:last-child td{border-bottom:0}
+td small{display:block;color:var(--muted);font-size:12px}
+.search{width:100%;border:1.5px solid var(--line);background:var(--surface);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.search:focus{outline:none;border-color:var(--brand)}
+.srcs{font-size:13px;color:var(--muted);padding-left:18px;margin:0}
+.srcs li{margin-bottom:6px}
+.scanbtn{display:block;width:100%;border:0;background:var(--brand);color:var(--brand-ink);border-radius:24px;padding:26px 20px;text-align:center}
+.scanbtn .ico{width:60px;height:60px;border-radius:18px;background:rgba(255,255,255,.16);display:grid;place-items:center;margin:0 auto 12px}
+.scanbtn strong{display:block;font-size:20px;letter-spacing:-.01em}
+.scanbtn span{font-size:14px;opacity:.85}
+.scanbtn:disabled{opacity:.5}
+.uplink{display:block;position:relative;text-align:center;margin-top:12px;color:var(--muted);font-size:14px;cursor:pointer}
+.uplink u{color:var(--ink)}
+.uplink input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
+.hidden-input{display:none}
+.scanner{position:fixed;inset:0;z-index:50;background:#000}
+.scanner video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.sframe{position:absolute;left:7%;right:7%;top:20%;bottom:28%;border-radius:24px;border:3px solid rgba(255,255,255,.9);box-shadow:0 0 0 100vmax rgba(0,0,0,.45);transition:border-color .2s}
+.sframe.hit{border-color:#5FC795;border-width:5px}
+.sframe::after{content:"";position:absolute;left:6%;right:6%;height:3px;border-radius:3px;background:#5FC795;box-shadow:0 0 12px #5FC795;top:10%;animation:sweep 1.8s ease-in-out infinite alternate}
+.sframe.hit::after{display:none}
+@keyframes sweep{to{top:88%}}
+@media (prefers-reduced-motion: reduce){.sframe::after{animation:none;top:50%}}
+.sstatus{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 128px);text-align:center;color:#fff;font-size:14px;margin:0;padding:0 24px;opacity:.9;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.shint{position:absolute;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 28px);text-align:center;color:#fff;font-weight:600;font-size:17px;padding:0 28px;margin:0;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.sbar{position:absolute;left:0;right:0;bottom:0;padding:20px 32px calc(28px + env(safe-area-inset-bottom,0px));display:flex;justify-content:space-between;align-items:center}
+.sclose{width:50px;height:50px;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;font-size:20px}
+.shutter{width:78px;height:78px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25)}
+.shutter:active{background:#fff}
+.disclaimer{font-size:12px;color:var(--muted);margin:28px 4px 0;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="mark">
+      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect width="30" height="30" rx="9" fill="var(--brand)"/><path d="M8 16.5l4.2 4.2L22 10.5" stroke="var(--brand-ink)" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      labelwise
+    </div>
+    <div class="seg" role="group" aria-label="Product type" id="modeSeg">
+      <button data-mode="food" aria-pressed="true">Food</button>
+      <button data-mode="cosmetic" aria-pressed="false">Cosmetics</button>
+    </div>
+  </header>
+
+  <!-- SCAN -->
+  <section id="vScan">
+    <h1 id="scanTitle">What’s really in it?</h1>
+    <p class="lede" id="scanLede">Scan any barcode and get a health score out of 100, with the reasons behind it.</p>
+
+    <button class="scanbtn" id="scanBtn">
+      <span class="ico"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M8 9v6M11 9v6M14 9v6M17 9v6"/></svg></span>
+      <strong>Scan a product</strong>
+      <span id="captureHint">Point your camera at the back of the pack</span>
+    </button>
+    <input type="file" accept="image/*" capture="environment" id="camIn" class="hidden-input" aria-hidden="true" tabindex="-1">
+    <div class="or">or</div>
+    <form class="field" id="codeForm" onsubmit="return false">
+      <input id="codeIn" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Type the barcode number" autocomplete="off" aria-label="Barcode number">
+      <button class="primary" id="codeBtn" type="submit">Look up</button>
+    </form>
+    <div class="hide" aria-hidden="true">
+      <label id="uplink"> <u></u><input type="file" id="fileIn"></label><div id="thumbs"></div>
+      <input id="nameIn"><button id="analyzeBtn"></button><p id="noClaude"></p>
+    </div>
+    <div class="err hide" id="scanErr" role="alert"></div>
+
+    <div class="examples">
+      <h2>Try an example</h2>
+      <div class="chips" id="examples"></div>
+    </div>
+    <p class="disclaimer">Product data from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Food Facts</a> and Open Beauty Facts, available under the Open Database License.</p>
+  </section>
+
+  <!-- LOADING -->
+  <section id="vLoading" class="hide loading" aria-live="polite">
+    <div class="pulse" aria-hidden="true"></div>
+    <p style="color:var(--ink);font-weight:600;font-size:18px">Looking it up…</p>
+    <p id="loadMsg">Checking nutrients and additives</p>
+    <button class="ghost" id="stopBtn">Stop</button>
+  </section>
+
+  <!-- RESULT -->
+  <section id="vResult" class="hide"></section>
+
+  <!-- STANDARDS -->
+  <section id="vStandards" class="hide"></section>
+
+  <!-- HISTORY -->
+  <section id="vHistory" class="hide">
+    <h1>History</h1>
+    <p class="lede">Every product you’ve checked.</p>
+    <div id="histList"></div>
+    <p class="syncnote" id="syncNote"></p>
+  </section>
+</div>
+
+<div class="scanner" id="scanner" role="dialog" aria-label="Product scanner" hidden>
+  <video id="video" playsinline muted autoplay></video>
+  <div class="sframe" id="sframe"></div>
+  <p class="shint" id="sHint">Point at the barcode and nutrition panel</p>
+  <p class="sstatus" id="sStatus">Looking for a barcode…</p>
+  <div class="sbar">
+    <button class="sclose" id="sClose" aria-label="Close scanner">✕</button>
+    <button class="shutter" id="shutter" aria-label="Capture now"></button>
+    <span style="width:50px"></span>
+  </div>
+</div>
+
+<nav class="tabs" aria-label="Main">
+  <div class="in">
+    <button data-tab="scan" aria-current="page">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M8 9v6M11 9v6M14 9v6M17 9v6"/></svg>
+      Check
+    </button>
+    <button data-tab="standards">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h6M9 8h3"/></svg>
+      Standards
+    </button>
+    <button data-tab="history">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+      History
+    </button>
+  </div>
+</nav>
+
+<script>
+/* ---------------- scoring ---------------- */
+const COLORS = {ex:"var(--ex)",good:"var(--good)",poor:"var(--poor)",bad:"var(--bad)",none:"var(--none)"};
+function band(s){ return s>=75?{k:"ex",label:"Excellent"}:s>=50?{k:"good",label:"Good"}:s>=25?{k:"poor",label:"Poor"}:{k:"bad",label:"Bad"}; }
+
+const T = {
+  energy:[335,670,1005,1340,1675,2010,2345,2680,3015,3350],
+  sugar:[4.5,9,13.5,18,22.5,27,31,36,40,45],
+  sat:[1,2,3,4,5,6,7,8,9,10],
+  sodium:[90,180,270,360,450,540,630,720,810,900],
+  fiber:[0.9,1.9,2.8,3.7,4.7],
+  protein:[1.6,3.2,4.8,6.4,8.0],
+  bevEnergy:[0,30,60,90,120,150,180,210,240,270],
+  bevSugar:[0,1.5,3,4.5,6,7.5,9,10.5,12,13.5]
+};
+const pts=(v,arr)=>arr.reduce((p,t)=>(+v||0)>t?p+1:p,0);
+function interp(x,pairs){
+  if(x<=pairs[0][0]) return pairs[0][1];
+  for(let i=1;i<pairs.length;i++){ const [x1,y1]=pairs[i-1],[x2,y2]=pairs[i];
+    if(x<=x2) return y1+(y2-y1)*(x-x1)/(x2-x1); }
+  return pairs[pairs.length-1][1];
+}
+const RISK_ORDER={none:0,limited:1,low:1,moderate:2,high:3};
+function normRisk(r){ r=String(r||"none").toLowerCase(); if(r==="low") return "limited"; return RISK_ORDER[r]!==undefined?r:"none"; }
+
+function scoreFood(p){
+  const n=p.per100||{}; const bev=!!p.is_beverage;
+  const kcal=+n.energy_kcal||0, kj=kcal*4.184;
+  const e=pts(kj,bev?T.bevEnergy:T.energy);
+  const s=pts(n.sugars_g,bev?T.bevSugar:T.sugar);
+  const sf=pts(n.sat_fat_g,T.sat);
+  const na=pts((+n.salt_g||0)*400,T.sodium);
+  const fvp=+n.fruit_veg_pct||0;
+  const fv=bev?(fvp>80?10:fvp>60?4:fvp>40?2:0):(fvp>80?5:fvp>60?2:fvp>40?1:0);
+  const fib=pts(n.fiber_g,T.fiber), pro=pts(n.protein_g,T.protein);
+  const neg=e+s+sf+na;
+  const proCounted=!(neg>=11 && fv<(bev?10:5));
+  const fsa=neg-(fv+fib+(proCounted?pro:0));
+  const water=bev&&kcal===0&&(+n.sugars_g||0)===0;
+  const nut=water?100:bev
+    ? interp(fsa,[[-15,92],[1,72],[2,62],[5,46],[6,38],[9,22],[10,18],[40,0]])
+    : interp(fsa,[[-15,100],[-1,82],[0,78],[2,68],[3,62],[10,42],[11,38],[18,20],[19,15],[40,0]]);
+  const adds=(p.additives||[]).map(a=>{ const ref=lookupAdditive(a.code,a.name); return {...a,risk:ref?ref.risk:normRisk(a.risk),ref}; });
+  const worst=adds.reduce((m,a)=>Math.max(m,RISK_ORDER[a.risk]),0);
+  const nMod=adds.filter(a=>a.risk==="moderate").length;
+  let add=worst===3?0:worst===2?Math.max(0,45-10*(nMod-1)):worst===1?78:100;
+  let total=Math.round(0.6*nut+0.3*add+0.1*(p.organic?100:0));
+  if(worst===3) total=Math.min(total,49);
+  total=Math.max(0,Math.min(100,total));
+  return {total,parts:{e,s,sf,na,fv,fib,pro,kcal,bev},adds,worst};
+}
+function scoreCosmetic(p){
+  const ings=(p.ingredients||[]).map(i=>{ const ref=lookupIngredient(i.name); return {...i,risk:ref?ref.risk:normRisk(i.risk),ref}; });
+  const c={limited:0,moderate:0,high:0}; ings.forEach(i=>{ if(c[i.risk]!==undefined) c[i.risk]++; });
+  return {total:cosmeticTotal(c),ings,counts:c};
+}
+function cosmeticTotal(c){
+  const h=+c.high||0,m=+c.moderate||0,l=+(c.limited??c.low)||0;
+  let s=100-4*l-8*m-12*h;
+  if(h) s=Math.min(s,24); else if(m) s=Math.min(s,49); else if(l) s=Math.min(s,74);
+  return Math.max(0,Math.round(s));
+}
+function scoreOf(p){ return p.kind==="cosmetic"?scoreCosmetic(p).total:scoreFood(p).total; }
+
+/* ---------------- examples (work without Claude) ---------------- */
+const EXAMPLES=[
+ {kind:"food",name:"Chocolate hazelnut spread",brand:"Generic supermarket jar",source:"example",is_beverage:false,organic:false,
+  serving_g:15,serving_label:"1 tbsp (15 g)",per100:{energy_kcal:539,fat_g:30.9,sugars_g:56.3,sat_fat_g:10.6,salt_g:0.107,fiber_g:3.4,protein_g:6.3,fruit_veg_pct:13},
+  additives:[{code:"E322",name:"Lecithins",risk:"none",note:"Emulsifier, usually from soy or sunflower; no known risk at normal intake."}],
+  summary:"Over half the jar is sugar, with a lot of saturated fat from palm oil. Fine as an occasional treat, not a breakfast staple.",
+  alternatives:[
+   {kind:"food",name:"100% hazelnut butter",why:"Just ground hazelnuts — no added sugar.",per100:{energy_kcal:650,sugars_g:4.3,sat_fat_g:4.5,salt_g:0,fiber_g:9.7,protein_g:15,fruit_veg_pct:100},organic:false,additives:[]},
+   {kind:"food",name:"Organic peanut butter, no salt",why:"High protein and fiber, minimal sugar.",per100:{energy_kcal:600,sugars_g:4,sat_fat_g:7,salt_g:0,fiber_g:8,protein_g:25,fruit_veg_pct:100},organic:true,additives:[]}
+  ]},
+ {kind:"food",name:"Cola soft drink",brand:"Regular, 330 ml can",source:"example",is_beverage:true,organic:false,
+  serving_g:330,serving_label:"1 can (330 ml)",per100:{energy_kcal:42,fat_g:0,sugars_g:10.6,sat_fat_g:0,salt_g:0.01,fiber_g:0,protein_g:0,fruit_veg_pct:0},
+  additives:[{code:"E150d",name:"Sulphite ammonia caramel",risk:"moderate",note:"Can contain 4-MEI, a by-product classed as possibly carcinogenic in animal studies."},
+             {code:"E338",name:"Phosphoric acid",risk:"moderate",note:"High phosphate intake is linked to poorer bone and kidney health."}],
+  summary:"About seven sugar cubes per can, no nutritional upside, and two additives with some health concerns.",
+  alternatives:[
+   {kind:"food",name:"Sparkling water with lemon",why:"Same fizz, zero sugar.",is_beverage:true,per100:{energy_kcal:0,sugars_g:0,sat_fat_g:0,salt_g:0,fiber_g:0,protein_g:0,fruit_veg_pct:0},organic:false,additives:[]},
+   {kind:"food",name:"Unsweetened iced tea",why:"Flavor without added sugar or caramel coloring.",is_beverage:true,per100:{energy_kcal:1,sugars_g:0,sat_fat_g:0,salt_g:0,fiber_g:0,protein_g:0,fruit_veg_pct:0},organic:false,additives:[{code:"E330",name:"Citric acid",risk:"none"}]}
+  ]},
+ {kind:"food",name:"Organic rolled oats",brand:"Wholegrain, 500 g",source:"example",is_beverage:false,organic:true,
+  serving_g:40,serving_label:"1 bowl (40 g)",per100:{energy_kcal:375,fat_g:7,sugars_g:1.1,sat_fat_g:1.2,salt_g:0.01,fiber_g:9,protein_g:13,fruit_veg_pct:0},
+  additives:[],summary:"Wholegrain, high in fiber and protein, nothing added. A great base for breakfast.",alternatives:[]},
+ {kind:"food",name:"Plain Greek yogurt",brand:"Full fat, 500 g",source:"example",is_beverage:false,organic:false,
+  serving_g:150,serving_label:"1 pot (150 g)",per100:{energy_kcal:133,fat_g:10,sugars_g:3.6,sat_fat_g:6.5,salt_g:0.13,fiber_g:0,protein_g:5.7,fruit_veg_pct:0},
+  additives:[],summary:"Simple ingredients and decent protein, but the saturated fat pulls the score down a little.",
+  alternatives:[{kind:"food",name:"Low-fat plain skyr",why:"Twice the protein with far less saturated fat.",per100:{energy_kcal:63,sugars_g:3.5,sat_fat_g:0.1,salt_g:0.1,fiber_g:0,protein_g:11,fruit_veg_pct:0},organic:false,additives:[]}]},
+ {kind:"cosmetic",name:"Daily face moisturizer",brand:"Fragranced, 50 ml",source:"example",
+  ingredients:[
+   {name:"Aqua",risk:"none",function:"Solvent"},{name:"Glycerin",risk:"none",function:"Humectant"},
+   {name:"Cetearyl alcohol",risk:"none",function:"Emollient"},{name:"Dimethicone",risk:"none",function:"Skin conditioning"},
+   {name:"Propylparaben",risk:"high",function:"Preservative",note:"Suspected endocrine disruptor; restricted in the EU."},
+   {name:"Parfum",risk:"moderate",function:"Fragrance",note:"Undisclosed mix; a common cause of skin allergies."},
+   {name:"Linalool",risk:"limited",function:"Fragrance component",note:"Known allergen once oxidized."},
+   {name:"Phenoxyethanol",risk:"limited",function:"Preservative",note:"Can irritate sensitive skin at higher doses."},
+   {name:"Tocopherol",risk:"none",function:"Antioxidant"}],
+  summary:"Mostly gentle ingredients, but propylparaben and added fragrance are worth avoiding, especially on sensitive skin.",
+  alternatives:[{kind:"cosmetic",name:"Fragrance-free ceramide moisturizer",why:"No fragrance, no parabens.",risks:{high:0,moderate:0,limited:1}},
+                {kind:"cosmetic",name:"Plain squalane oil",why:"Single, well-tolerated ingredient.",risks:{high:0,moderate:0,limited:0}}]}
+];
+
+
+/* ---------------- reference database (snapshot of public sources) ---------------- */
+const DAILY={
+ who:{name:"WHO",full:"World Health Organization guidelines",
+  fat:{v:67,note:"under 30% of daily energy"},sat:{v:22,note:"under 10% of daily energy"},
+  sugars:{v:50,ideal:25,note:"free sugars under 10% of energy, ideally under 5% (25 g, the tick mark)"},
+  salt:{v:5,note:"under 5 g of salt a day"},fiber:{v:25,note:"at least 25 g of naturally occurring fiber"}},
+ fda:{name:"US FDA",full:"US FDA Daily Values (21 CFR 101.9)",
+  energy:{v:2000},fat:{v:78},sat:{v:20},sugars:{v:50,note:"Daily Value for added sugars"},
+  salt:{v:5.75,note:"2,300 mg of sodium"},fiber:{v:28},protein:{v:50}},
+ eu:{name:"EU / UK",full:"EU and UK Reference Intakes (Reg. 1169/2011) and EFSA",
+  energy:{v:2000},fat:{v:70},sat:{v:20},sugars:{v:90,note:"reference intake for total sugars"},
+  salt:{v:6},fiber:{v:25,note:"EFSA adequate intake"},protein:{v:50}}
+};
+const NUTRIENTS=[["energy","Energy","energy_kcal","kcal","limit"],["fat","Fat","fat_g","g","limit"],["sat","Saturated fat","sat_fat_g","g","limit"],["sugars","Sugars","sugars_g","g","limit"],["salt","Salt","salt_g","g","limit"],["fiber","Fiber","fiber_g","g","target"],["protein","Protein","protein_g","g","target"]];
+const TRAFFIC={food:{fat:[3,17.5],sat:[1.5,5],sugars:[5,22.5],salt:[0.3,1.5]},drink:{fat:[1.5,8.75],sat:[0.75,2.5],sugars:[2.5,11.25],salt:[0.3,0.75]}};
+const CLAIMS=[
+ {f:"fat_g",label:"Low fat",ok:(n,b)=>n.fat_g!=null&&+n.fat_g<=(b?1.5:3),rule:b=>`Up to ${b?1.5:3} g fat per 100 ${b?"ml":"g"}`},
+ {f:"sat_fat_g",label:"Low saturated fat",ok:(n,b)=>+n.sat_fat_g<=(b?0.75:1.5),rule:b=>`Up to ${b?0.75:1.5} g saturated fat per 100 ${b?"ml":"g"}`},
+ {f:"sugars_g",label:"Low sugars",ok:(n,b)=>+n.sugars_g<=(b?2.5:5),rule:b=>`Up to ${b?2.5:5} g sugars per 100 ${b?"ml":"g"}`},
+ {f:"salt_g",label:"Low salt",ok:(n,b)=>+n.salt_g<=0.3,rule:b=>`Up to 0.3 g salt per 100 ${b?"ml":"g"}`},
+ {f:"fiber_g",label:n=>+n.fiber_g>=6?"High fiber":"Source of fiber",ok:n=>+n.fiber_g>=3,rule:()=>"At least 3 g fiber per 100 g (6 g for high fiber)"},
+ {f:"protein_g",label:n=>(+n.protein_g*4)/(+n.energy_kcal||1)>=.2?"High protein":"Source of protein",ok:n=>+n.energy_kcal>0&&(+n.protein_g*4)/(+n.energy_kcal)>=.12,rule:()=>"At least 12% of energy from protein (20% for high protein)"}
+];
+
+const SOUTHAMPTON="EU: allowed, but the label must warn it “may have an adverse effect on activity and attention in children.”";
+const ADDITIVES=[
+ [["E102"],"Tartrazine","moderate","restricted",SOUTHAMPTON],
+ [["E104"],"Quinoline yellow","moderate","restricted",SOUTHAMPTON],
+ [["E110"],"Sunset yellow FCF","moderate","restricted",SOUTHAMPTON],
+ [["E122"],"Azorubine","moderate","restricted",SOUTHAMPTON],
+ [["E124"],"Ponceau 4R","moderate","restricted",SOUTHAMPTON],
+ [["E129"],"Allura red AC","moderate","restricted",SOUTHAMPTON],
+ [["E127"],"Erythrosine (Red No. 3)","high","restricted","EU: allowed only in cocktail and candied cherries. The US FDA revoked its use in food in January 2025."],
+ [["E120"],"Carmine","limited","allowed","EU: allowed. Can trigger allergic reactions in some people."],
+ [["E150C","E150D"],"Ammonia caramels","moderate","allowed","Can contain 4-MEI, which IARC classifies as possibly carcinogenic (Group 2B)."],
+ [["E171"],"Titanium dioxide","high","banned","EU: banned as a food additive since 2022, after EFSA could not rule out damage to DNA."],
+ [["E173"],"Aluminium","moderate","restricted","EU: only for decorating sugar confectionery. Aluminium accumulates in the body."],
+ [["E210","E211","E212","E213"],"Benzoates","moderate","allowed","EU: allowed. Can form benzene with vitamin C, and linked to hyperactivity in the Southampton study."],
+ [["E200","E202","E203"],"Sorbates","limited","allowed","EU: allowed. EFSA group ADI of 11 mg per kg of body weight."],
+ [["E220","E221","E222","E223","E224","E225","E226","E227","E228"],"Sulphites","moderate","allowed","EU: allowed, and a declared allergen above 10 mg/kg. Can trigger asthma in sensitive people."],
+ [["E249","E250"],"Nitrites","high","restricted","IARC: processed meat is carcinogenic (Group 1), and nitrite under conditions that form nitrosamines is Group 2A. The EU lowered maximum levels in 2023."],
+ [["E251","E252"],"Nitrates","high","restricted","Converted to nitrite in the body. Same IARC concerns as nitrites. The EU lowered maximum levels in 2023."],
+ [["E319"],"TBHQ","moderate","allowed","EU: allowed. EFSA ADI of 0.7 mg per kg of body weight."],
+ [["E320"],"BHA","high","allowed","IARC: possibly carcinogenic to humans (Group 2B)."],
+ [["E321"],"BHT","moderate","allowed","EU: allowed. EFSA ADI of 0.25 mg per kg of body weight."],
+ [["E338","E339","E340","E341","E343","E450","E451","E452"],"Phosphates","moderate","allowed","EFSA (2019): group ADI of 40 mg phosphorus per kg of body weight. High intake strains the kidneys and blood vessels."],
+ [["E407","E407A"],"Carrageenan","moderate","allowed","EFSA (2018) set only a temporary ADI and asked for more data on gut effects."],
+ [["E433"],"Polysorbate 80","moderate","allowed","Animal studies link it to gut-lining and microbiome changes."],
+ [["E466"],"Carboxymethyl cellulose","moderate","allowed","Human and animal studies link it to gut microbiome changes."],
+ [["E471"],"Mono- and diglycerides of fatty acids","limited","allowed","A large French cohort (NutriNet-Santé, 2023) linked higher intake to cardiovascular disease. Evidence is still emerging."],
+ [["E620","E621","E622","E623","E624","E625"],"Glutamates (incl. MSG)","limited","allowed","EFSA (2017): group ADI of 30 mg per kg of body weight."],
+ [["E951"],"Aspartame","moderate","allowed","IARC (2023): possibly carcinogenic (Group 2B). JECFA kept the ADI at 40 mg per kg of body weight."],
+ [["E950"],"Acesulfame K","limited","allowed","EU: allowed. Being studied for effects on the gut microbiome."],
+ [["E955"],"Sucralose","limited","allowed","EU: allowed. A 2023 study on one breakdown product raised questions about DNA damage. Evidence is early."],
+ [["E954"],"Saccharin","limited","allowed","EU: allowed. EFSA raised its ADI to 9 mg per kg of body weight in 2024."],
+ [["E968"],"Erythritol","limited","allowed","A 2023 study linked high blood erythritol to cardiovascular events. Laxative in large amounts."],
+ [["E420","E421","E953","E965","E966","E967"],"Polyols (sugar alcohols)","limited","allowed","Laxative in large amounts. EU requires a warning when they exceed 10% of the product."],
+ [["E960"],"Steviol glycosides","none","allowed","EU: allowed. EFSA ADI of 4 mg per kg of body weight."],
+ [["E385"],"Calcium disodium EDTA","limited","restricted","EU: allowed only in a short list of foods."],
+ [["BROMATE"],"Potassium bromate","high","banned","Not allowed in the EU, UK or Canada. IARC Group 2B. California bans it from 2027."],
+ [["BVO"],"Brominated vegetable oil","high","banned","Not allowed in the EU. The US FDA revoked its approval in 2024."],
+ [["E100"],"Curcumin","none","allowed","No known concern at normal intake."],
+ [["E160A"],"Carotenes","none","allowed","No known concern."],
+ [["E162","E163"],"Beetroot red and anthocyanins","none","allowed","Natural plant colors. No known concern."],
+ [["E290"],"Carbon dioxide","none","allowed","No known concern."],
+ [["E296","E330","E331","E332","E333","E334"],"Food acids and citrates","none","allowed","No known concern."],
+ [["E270"],"Lactic acid","none","allowed","No known concern."],
+ [["E300","E301","E302"],"Ascorbic acid (vitamin C)","none","allowed","No known concern."],
+ [["E306","E307","E308","E309"],"Tocopherols (vitamin E)","none","allowed","No known concern."],
+ [["E322"],"Lecithins","none","allowed","No known concern."],
+ [["E406","E410","E412","E414","E415","E418","E440"],"Plant gums and pectins","none","allowed","No known concern at normal intake."],
+ [["E500","E501","E503"],"Carbonates (raising agents)","none","allowed","No known concern."]
+].map(([codes,name,risk,status,text])=>({codes,name,risk,status,text}));
+const ADD_INDEX={}; ADDITIVES.forEach(a=>a.codes.forEach(c=>ADD_INDEX[c]=a));
+function lookupAdditive(code,name){
+  const c=String(code||"").toUpperCase().replace(/[\s\-().]/g,"");
+  const m=c.match(/^E\d{3,4}[A-D]?/);
+  if(m){ if(ADD_INDEX[m[0]]) return ADD_INDEX[m[0]]; const d=m[0].replace(/[A-D]$/,""); if(ADD_INDEX[d]) return ADD_INDEX[d]; }
+  const nm=String(name||"").toLowerCase();
+  if(nm.includes("bromate")) return ADD_INDEX.BROMATE;
+  if(nm.includes("brominated")) return ADD_INDEX.BVO;
+  return null;
+}
+
+const FRAG_ALLERGEN="One of the EU’s listed fragrance allergens. Must be named on the label above 0.001% in leave-on products.";
+const COSMETIC_DB=[
+ [["isopropylparaben","isobutylparaben","phenylparaben","benzylparaben","pentylparaben"],"Long-chain parabens","high","banned","EU: banned since 2014 (Annex II of Reg. 1223/2009)."],
+ [["propylparaben","butylparaben"],"Propyl- and butylparaben","high","restricted","EU: max 0.14% combined, and banned in leave-on products for the nappy area of children under 3. Suspected endocrine disruptors."],
+ [["methylparaben","ethylparaben"],"Methyl- and ethylparaben","limited","restricted","EU: up to 0.4% each. The SCCS considers them safe at these levels."],
+ [["dmdm hydantoin","quaternium-15","imidazolidinyl urea","diazolidinyl urea","bronopol","2-bromo-2-nitropropane","sodium hydroxymethylglycinate"],"Formaldehyde releasers","high","restricted","Release formaldehyde (IARC Group 1). EU requires a “releases formaldehyde” warning above 0.001% since 2022."],
+ [["formaldehyde"],"Formaldehyde","high","restricted","IARC Group 1 carcinogen. Heavily restricted in the EU."],
+ [["triclosan"],"Triclosan","high","restricted","EU: max 0.3% in a few product types only. The US FDA removed it from consumer antiseptic washes in 2016."],
+ [["benzophenone-3","oxybenzone"],"Oxybenzone","high","restricted","EU (2022): max 6% in face and hand products, 2.2% in body products. Suspected endocrine disruptor. Banned in Hawaii sunscreens."],
+ [["ethylhexyl methoxycinnamate","octinoxate"],"Octinoxate","moderate","restricted","EU: max 10%. Suspected endocrine disruptor. Banned in Hawaii sunscreens."],
+ [["homosalate"],"Homosalate","moderate","restricted","EU (2022): max 7.34%, face products only. Suspected endocrine disruptor."],
+ [["octocrylene"],"Octocrylene","moderate","restricted","EU: max 10%. Can degrade into benzophenone, a possible carcinogen."],
+ [["cyclotetrasiloxane","cyclopentasiloxane","cyclohexasiloxane"],"Cyclic silicones (D4, D5, D6)","moderate","restricted","EU: limited to under 0.1% in wash-off products since 2020, with leave-on limits from 2026. Persistent in the environment."],
+ [["butylphenyl methylpropional","lilial"],"Lilial","high","banned","EU: banned since March 2022 as toxic for reproduction."],
+ [["hydroxyisohexyl 3-cyclohexene carboxaldehyde","lyral"],"Lyral","high","banned","EU: banned since 2021 as a strong skin allergen."],
+ [["methylchloroisothiazolinone","methylisothiazolinone"],"Isothiazolinones","moderate","restricted","EU: banned in leave-on products, max 0.0015% in rinse-off. Strong skin allergens."],
+ [["hydroquinone"],"Hydroquinone","high","banned","EU: banned in cosmetics except professional artificial-nail systems."],
+ [["talc"],"Talc","moderate","allowed","IARC (2024): probably carcinogenic (Group 2A). Avoid inhaling loose powder."],
+ [["p-phenylenediamine","phenylenediamine"],"p-Phenylenediamine","moderate","restricted","EU: hair dyes only, at limited strength with allergy warnings. Strong allergen."],
+ [["butylated hydroxyanisole","bha"],"BHA","high","allowed","IARC: possibly carcinogenic (Group 2B)."],
+ [["butylated hydroxytoluene","bht"],"BHT","limited","allowed","EU: allowed. Considered safe by the SCCS at current levels."],
+ [["retinol","retinyl palmitate","retinyl acetate"],"Retinol and esters","limited","restricted","EU (2024): max 0.3% retinol equivalent in face products, 0.05% in body lotions."],
+ [["parfum","fragrance","aroma"],"Fragrance (parfum)","moderate","allowed","Ingredients are undisclosed. Fragrance is a leading cause of cosmetic contact allergy."],
+ [["linalool","limonene","citronellol","geraniol","eugenol","isoeugenol","coumarin","citral","cinnamal","hexyl cinnamal","amyl cinnamal","farnesol","benzyl alcohol","benzyl benzoate","benzyl salicylate","benzyl cinnamate","alpha-isomethyl ionone","hydroxycitronellal","anise alcohol","cinnamyl alcohol","evernia prunastri"],"Fragrance allergens","limited","restricted",FRAG_ALLERGEN],
+ [["sodium lauryl sulfate"],"Sodium lauryl sulfate","limited","allowed","Can irritate skin and eyes, especially in leave-on use."],
+ [["phenoxyethanol"],"Phenoxyethanol","limited","restricted","EU: max 1%. Can irritate sensitive skin."],
+ [["titanium dioxide"],"Titanium dioxide","limited","restricted","Considered safe in creams. The EU classes the inhalable powder as a suspected carcinogen, so it’s restricted in sprays and powders."],
+ [["paraffinum liquidum","mineral oil","petrolatum"],"Mineral oils","limited","allowed","Highly refined grades are considered safe. Poorly refined grades can contain aromatic hydrocarbon contaminants."],
+ [["aluminum chlorohydrate","aluminium chlorohydrate"],"Aluminium salts","limited","allowed","The SCCS (2020) considers current levels in antiperspirants safe."],
+ [["peg-"],"PEG compounds","limited","allowed","Can contain traces of 1,4-dioxane, depending on how they’re made."]
+].map(([keys,name,risk,status,text])=>({keys,name,risk,status,text}));
+const COS_KEYS=COSMETIC_DB.flatMap(e=>e.keys.map(k=>[k,e])).sort((a,b)=>b[0].length-a[0].length);
+function lookupIngredient(name){
+  const n=" "+String(name||"").toLowerCase()+" ";
+  for(const [k,e] of COS_KEYS){
+    if(k.endsWith("-")){ if(n.includes(" "+k)) return e; continue; }
+    const re=new RegExp("(^|[^a-z])"+k.replace(/[-]/g,"\\-")+"([^a-z]|$)");
+    if(re.test(n)) return e;
+  }
+  return null;
+}
+const SOURCES=[
+ "WHO, Guideline: sugars intake for adults and children (2015)",
+ "WHO, Guideline: sodium intake for adults and children (2012)",
+ "WHO, Saturated fatty acid and trans-fatty acid intake guideline (2023)",
+ "WHO, Carbohydrate intake guideline (2023), fiber target",
+ "US FDA, Daily Values for nutrition labeling, 21 CFR 101.9 (2016 update)",
+ "EU Regulation 1169/2011, Annex XIII reference intakes",
+ "EU Regulation 1924/2006, nutrition claims",
+ "UK Department of Health and FSA, front-of-pack nutrition labelling guidance (2016)",
+ "EU Regulation 1333/2008 and EFSA re-evaluations of food additives",
+ "IARC Monographs classifications (incl. aspartame 2023, talc 2024)",
+ "EU Cosmetics Regulation 1223/2009, Annexes II, III and V, with later amendments",
+ "Product data: Open Food Facts and Open Beauty Facts (Open Database License)"
+];
+
+/* ---------------- storage: Claude db when available, else local ---------------- */
+const LKEY="labelwise-history";
+const store={
+  db:null,uid:null,
+  async init(){
+    try{
+      if(!window.claude?.use) return;
+      const [db,user]=await Promise.all([claude.use("db"),claude.use("user")]);
+      if(db&&user){ const id=await user.id(); if(id){ this.db=db; this.uid=id; } }
+    }catch(e){}
+  },
+  col(){ return this.db.collection("data/users/"+this.uid); },
+  localAll(){ try{ return JSON.parse(localStorage.getItem(LKEY)||"[]"); }catch(e){ return []; } },
+  localWrite(list){ try{ localStorage.setItem(LKEY,JSON.stringify(list.slice(0,200))); }catch(e){} },
+  async list(){
+    if(this.db){ try{ const s=await this.col().get(); return s.docs.filter(d=>d.exists).map(d=>({...d.data(),id:d.id})).sort((a,b)=>b.savedAt-a.savedAt); }catch(e){} }
+    return this.localAll().sort((a,b)=>b.savedAt-a.savedAt);
+  },
+  async add(item){
+    if(this.db){ try{ await this.col().doc(item.id).set(JSON.parse(JSON.stringify(item))); return; }catch(e){} }
+    const l=this.localAll(); l.unshift(item); this.localWrite(l);
+  },
+  async remove(id){
+    if(this.db){ try{ await this.col().doc(id).delete(); return; }catch(e){} }
+    this.localWrite(this.localAll().filter(x=>x.id!==id));
+  }
+};
+
+/* ---------------- state + helpers ---------------- */
+let mode="food", photos=[], sample=null, ctl=null, current=null, lastView="scan";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=(v,d=1)=>{ v=+v||0; return (Math.round(v*Math.pow(10,d))/Math.pow(10,d)).toString(); };
+
+function show(view){
+  ["vScan","vLoading","vResult","vHistory","vStandards"].forEach(v=>$(v).classList.toggle("hide",v!==view));
+  document.querySelectorAll(".tabs button").forEach(b=>{
+    const tab=view==="vHistory"?"history":view==="vStandards"?"standards":"scan";
+    const on=b.dataset.tab===tab;
+    on?b.setAttribute("aria-current","page"):b.removeAttribute("aria-current");
+  });
+  window.scrollTo(0,0);
+}
+function setMode(m){
+  mode=m;
+  document.querySelectorAll("#modeSeg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.mode===m));
+  $("captureHint").textContent="Point your camera at the barcode";
+  $("scanLede").textContent=m==="food"
+    ?"Scan any barcode and get a health score out of 100, with the reasons behind it."
+    :"Scan any cosmetic’s barcode and see which ingredients carry a known risk.";
+  $("nameIn").placeholder=m==="food"?"Type a product name, like “salted butter crackers”":"Type a product name, like “SPF 50 sunscreen”";
+  renderExamples();
+}
+function updateAnalyze(){ $("analyzeBtn").disabled=!sample||(!photos.length&&!$("nameIn").value.trim()); }
+
+function renderExamples(){
+  $("examples").innerHTML=EXAMPLES.map((e,i)=>e.kind!==mode?"":`<button class="chip" data-ex="${i}"><span class="dot" style="background:${COLORS[band(scoreOf(e)).k]}"></span>${esc(e.name)}</button>`).join("");
+}
+
+/* ---------------- photos ---------------- */
+async function shrink(file){
+  const bmp=await createImageBitmap(file);
+  const max=1400, k=Math.min(1,max/Math.max(bmp.width,bmp.height));
+  const c=document.createElement("canvas"); c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k);
+  c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);
+  return await new Promise(r=>c.toBlob(r,"image/jpeg",0.85));
+}
+$("fileIn").addEventListener("change",async e=>{
+  const files=[...e.target.files].slice(0,3-photos.length);
+  for(const f of files){ try{ const b=await shrink(f); photos.push({blob:b,url:URL.createObjectURL(b)}); }catch(err){} }
+  e.target.value=""; renderThumbs(); updateAnalyze();
+});
+function renderThumbs(){
+  $("thumbs").innerHTML=photos.map((p,i)=>`<div class="thumb"><img src="${p.url}" alt="Label photo ${i+1}"><button aria-label="Remove photo ${i+1}" data-rm="${i}">×</button></div>`).join("");
+  $("uplink").firstChild.textContent=photos.length?"":"or ";
+  $("uplink").querySelector("u").textContent=photos.length?(photos.length<3?"Add another photo":"3 photos added"):"upload label photos";
+}
+$("thumbs").addEventListener("click",e=>{ const i=e.target.dataset.rm; if(i!==undefined){ URL.revokeObjectURL(photos[i].url); photos.splice(+i,1); renderThumbs(); updateAnalyze(); }});
+
+/* ---------------- Claude analysis ---------------- */
+function prompt(kind,name,nPhotos,barcode){
+  let subject=nPhotos?`${nPhotos} photo(s) of a product label are attached${name?`; the user also typed: "${name}"`:""}.`:`The user typed this product name: "${name}".`;
+  if(barcode) subject+=` The scanner read barcode ${barcode} on the pack; use it only if you genuinely recognize it, and rely on what the photo shows.`;
+  if(kind==="food") return `You analyze packaged food and drink for a health-rating app. ${subject}
+
+Return ONLY a JSON object, no prose, in exactly this shape:
+{"name":string,"brand":string,"is_beverage":boolean,"organic":boolean,"source":"label"|"estimate",
+"serving_g":number,"serving_label":string,
+"per100":{"energy_kcal":number,"fat_g":number,"sat_fat_g":number,"sugars_g":number,"salt_g":number,"fiber_g":number,"protein_g":number,"fruit_veg_pct":number},
+"additives":[{"code":string,"name":string,"risk":"none"|"limited"|"moderate"|"high","note":string}],
+"summary":string,
+"alternatives":[{"name":string,"why":string,"is_beverage":boolean,"organic":boolean,"per100":{same keys},"additives":[{"code":string,"name":string,"risk":string}]}]}
+
+Rules:
+- Values are per 100 g (per 100 ml for drinks). If the photos show the nutrition panel, read the numbers exactly and set source "label"; otherwise use typical values for this product and set source "estimate". Convert sodium to salt (salt = sodium × 2.5) if needed. fruit_veg_pct is the share of fruit, vegetables, legumes and nuts.
+- serving_g is one typical serving in g or ml (from the pack if shown); serving_label describes it, like "1 can (330 ml)" or "2 tbsp (30 g)".
+- organic is true only if the pack shows an organic certification (or the name clearly says organic).
+- additives: only real food additives (E-numbers and equivalents) from the ingredient list or typical recipe; risk follows current scientific/EFSA evidence. note is one plain sentence.
+- summary: two plain sentences for a shopper, no jargon.
+- alternatives: 2 or 3 widely available, healthier products in the same category, with typical values. Generic names are fine.
+- If this is not a food or drink, return {"error":"one short sentence saying what you see instead"}.`;
+  return `You analyze cosmetic and personal-care products for an ingredient-safety app. ${subject}
+
+Return ONLY a JSON object, no prose, in exactly this shape:
+{"name":string,"brand":string,"source":"label"|"estimate",
+"ingredients":[{"name":string,"function":string,"risk":"none"|"limited"|"moderate"|"high","note":string}],
+"summary":string,
+"alternatives":[{"name":string,"why":string,"risks":{"high":number,"moderate":number,"limited":number}}]}
+
+Rules:
+- If the photos show the ingredient list (INCI), list every ingredient in order and set source "label"; otherwise give the typical formula and set source "estimate".
+- risk reflects current scientific evidence: endocrine disruption, carcinogenicity, allergens, irritation, environmental persistence. high = strong evidence or regulatory restriction; moderate = credible concern; limited = minor or allergen-type; none = no known concern. note is one plain sentence, empty when risk is none.
+- summary: two plain sentences for a shopper, no jargon.
+- alternatives: 2 or 3 widely available product types with cleaner formulas, with counts of risky ingredients they typically contain.
+- If this is not a cosmetic or personal-care product, return {"error":"one short sentence saying what you see instead"}.`;
+}
+const MSGS={food:["Checking nutrients and additives","Comparing against the scoring grid","Looking for better choices"],cosmetic:["Reading the ingredient list","Checking each ingredient’s risk","Looking for cleaner choices"]};
+async function analyze(opt={}){
+  const scanned=!!opt.images;
+  const imgs=scanned?opt.images:photos.map(p=>p.blob);
+  const name=scanned?"":$("nameIn").value.trim();
+  if(!sample){ $("scanErr").textContent="Scanning needs Claude, which isn’t available in this view. Open the page while signed in to Claude."; $("scanErr").classList.remove("hide"); return; }
+  if(!imgs.length&&!name) return;
+  $("scanErr").classList.add("hide");
+  show("vLoading");
+  let mi=0; $("loadMsg").textContent=MSGS[mode][0];
+  const tick=setInterval(()=>{ mi=(mi+1)%3; $("loadMsg").textContent=MSGS[mode][mi]; },4000);
+  ctl=new AbortController();
+  try{
+    const opts={signal:ctl.signal,modelTier:"default"};
+    if(imgs.length) opts.images=imgs;
+    const data=await sample.json(prompt(mode,name,imgs.length,opt.barcode),opts);
+    if(!data||typeof data!=="object") throw {code:"bad_json"};
+    if(data.error) throw {code:"not_product",message:data.error};
+    const item={...data,kind:mode,id:"scan-"+Date.now(),savedAt:Date.now()};
+    if(opt.barcode) item.barcode=opt.barcode;
+    (item.alternatives||[]).forEach(a=>{ a.kind=mode; a.additives=a.additives||[]; });
+    await store.add(item);
+    if(!scanned){ photos.forEach(p=>URL.revokeObjectURL(p.url)); photos=[]; renderThumbs(); $("nameIn").value=""; updateAnalyze(); }
+    renderResult(item,"scan");
+  }catch(e){
+    show("vScan");
+    if(e?.code==="cancelled") return;
+    const copy={
+      not_granted:"Claude access was declined for this page. Reload to allow it, or try an example product.",
+      rate_limited:"Too many checks at once. Wait a minute, then try again.",
+      images_unavailable:"Photos can’t be sent from this view. Type the product name instead.",
+      not_product:e?.message||"That doesn’t look like the right kind of product.",
+      bad_json:"The analysis came back incomplete. Try again with a clearer photo or a more specific name."
+    }[e?.code]||"The analysis didn’t finish. Try a clearer photo or a more specific product name.";
+    $("scanErr").textContent=copy; $("scanErr").classList.remove("hide");
+  }finally{ clearInterval(tick); }
+}
+
+/* ---------------- result rendering ---------------- */
+function ring(score){
+  const b=band(score), r=50, C=2*Math.PI*r;
+  return `<div class="ring" role="img" aria-label="Score ${score} out of 100, ${b.label}">
+    <svg width="118" height="118" viewBox="0 0 118 118"><circle cx="59" cy="59" r="${r}" fill="none" stroke="var(--soft)" stroke-width="11"/>
+    <circle class="arc" cx="59" cy="59" r="${r}" fill="none" stroke="${COLORS[b.k]}" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C}" data-target="${C*(1-score/100)}"/></svg>
+    <div class="num"><div><b>${score}</b><small>/100</small></div></div></div>`;
+}
+const lvl=(p,max)=>{ const r=p/max; return r<0.3?"ex":r<0.6?"poor":"bad"; };
+function row(color,title,sub,val,extra=""){
+  return `<div class="row" ${extra}><span class="dot" style="background:${COLORS[color]}"></span><div class="t"><b>${esc(title)}</b>${sub?`<span>${esc(sub)}</span>`:""}</div>${val?`<span class="v">${esc(val)}</span>`:""}</div>`;
+}
+function badge(ref){ return ref&&ref.status!=="allowed"?`<span class="badge ${ref.status}">${ref.status==="banned"?"Banned in EU":"EU limits"}</span>`:""; }
+function rowH(color,title,sub,valHTML){
+  return `<div class="row"><span class="dot" style="background:${COLORS[color]}"></span><div class="t"><b>${esc(title)}</b>${sub?`<span>${esc(sub)}</span>`:""}</div>${valHTML||""}</div>`;
+}
+function riskColor(r){ return {high:"bad",moderate:"poor",limited:"good",none:"ex"}[r]||"none"; }
+const RISK_LABEL={high:"High risk",moderate:"Moderate risk",limited:"Limited risk",none:"No known risk"};
+
+function foodRows(p,sc){
+  const n=p.per100||{}, x=sc.parts, unit=x.bev?"ml":"g";
+  const bad=[],good=[];
+  const neg=[
+    ["Energy",x.e,[ "Low calorie","A bit caloric","Too caloric"],`${fmt(n.energy_kcal,0)} kcal`],
+    ["Sugar",x.s,["Low sugar","A bit sweet","Too sweet"],`${fmt(n.sugars_g)} g`],
+    ["Saturated fat",x.sf,["Low saturated fat","Some saturated fat","Too much saturated fat"],`${fmt(n.sat_fat_g)} g`],
+    ["Salt",x.na,["Low salt","A bit salty","Too salty"],`${fmt(n.salt_g,2)} g`]
+  ];
+  neg.filter((x,i)=>n[["energy_kcal","sugars_g","sat_fat_g","salt_g"][i]]!=null).forEach(([k,p_,labels,val])=>{ const l=lvl(p_,10); const lab=labels[l==="ex"?0:l==="poor"?1:2];
+    (l==="ex"?good:bad).push(row(l,k,lab,val)); });
+  // additives
+  const risky=sc.adds.filter(a=>a.risk!=="none");
+  if(sc.adds.length){
+    const color=sc.worst===3?"bad":sc.worst===2?"poor":sc.worst===1?"good":"ex";
+    const title=risky.length?`Additives`:`Additives`;
+    const sub=risky.length?`${risky.length} with a known risk`:`${sc.adds.length} with no known risk`;
+    const html=`<button class="row expand" aria-expanded="false" data-toggle><span class="dot" style="background:${COLORS[color]}"></span><div class="t"><b>${title}</b><span>${sub}</span></div><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      <div class="sub hide">${sc.adds.map(a=>rowH(riskColor(a.risk),`${a.code?a.code+" ":""}${a.name||""}`.trim(),[RISK_LABEL[a.risk],a.ref?a.ref.text:a.note].filter(Boolean).join(". ").replace(/\.\./g,"."),badge(a.ref))).join("")}</div>`;
+    (risky.length?bad:good).push(html);
+  } else good.push(row("ex","No additives","Nothing added to the recipe",""));
+  if(x.fib>=1) good.push(row(x.fib>=3?"ex":"good","Fiber",x.fib>=3?"Excellent amount of fiber":"Some fiber",`${fmt(n.fiber_g)} g`));
+  if(x.pro>=1&&!x.bev) good.push(row(x.pro>=3?"ex":"good","Protein",x.pro>=3?"Excellent amount of protein":"Some protein",`${fmt(n.protein_g)} g`));
+  if(x.fv>=1) good.push(row("ex","Fruits, vegetables & nuts","A good share of the recipe",`${fmt(n.fruit_veg_pct,0)}%`));
+  if(p.organic) good.push(row("ex","Organic","Certified organic",""));
+  return {bad,good,per:`per 100 ${unit}`};
+}
+function cosmeticRows(p,sc){
+  const order={high:0,moderate:1,limited:2,none:3};
+  const risky=sc.ings.filter(i=>i.risk!=="none").sort((a,b)=>order[a.risk]-order[b.risk]);
+  const safe=sc.ings.filter(i=>i.risk==="none");
+  const bad=risky.map(i=>rowH(riskColor(i.risk),i.name,[RISK_LABEL[i.risk]+(i.function?`, ${String(i.function).toLowerCase()}`:""),i.ref?i.ref.text:i.note].filter(Boolean).join(". ").replace(/\.\./g,"."),badge(i.ref)));
+  const good=safe.length?[`<button class="row expand" aria-expanded="false" data-toggle><span class="dot" style="background:var(--ex)"></span><div class="t"><b>${safe.length} ingredient${safe.length>1?"s":""}</b><span>No known risk</span></div><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+    <div class="sub hide">${safe.map(i=>row("ex",i.name,i.function||"","")).join("")}</div>`]:[];
+  return {bad,good,per:""};
+}
+let authority=(()=>{ try{ return localStorage.getItem("labelwise-auth")||"who"; }catch(e){ return "who"; } })();
+function guideHTML(p){
+  const n=p.per100||{}, bev=!!p.is_beverage, unit=bev?"ml":"g";
+  const sv=+p.serving_g>0?+p.serving_g:100, f=sv/100;
+  const A=DAILY[authority];
+  const bars=NUTRIENTS.map(([k,label,field,u,type])=>{
+    const ref=A[k]; if(!ref||n[field]==null||n[field]==="") return "";
+    const amt=(+n[field]||0)*f, pct=amt/ref.v*100;
+    const color=type==="target"?"var(--brand)":COLORS[pct<=10?"ex":pct<=30?"poor":"bad"];
+    const tick=ref.ideal?`<span class="tick" style="left:${ref.ideal/ref.v*100}%"></span>`:"";
+    const what=type==="target"?"daily target":"daily limit";
+    return `<div class="gbar"><div class="gtop"><b>${label}</b><span>${fmt(amt,u==="kcal"?0:1)} ${u}, <strong>${Math.round(pct)}%</strong> of ${what}</span></div>
+      <div class="track" role="img" aria-label="${Math.round(pct)}% of ${what}"><div class="fill" style="width:${Math.min(100,pct)}%;background:${color}"></div>${tick}</div>
+      <small>${type==="target"?"Target":"Limit"}: ${ref.v.toLocaleString()} ${u} a day${ref.note?`, ${esc(ref.note)}`:""}.</small></div>`;
+  }).join("");
+  const TL=TRAFFIC[bev?"drink":"food"];
+  const tls=[["fat","Fat","fat_g"],["sat","Saturates","sat_fat_g"],["sugars","Sugars","sugars_g"],["salt","Salt","salt_g"]].filter(x=>n[x[2]]!=null&&n[x[2]]!=="").map(([k,l,fd])=>{
+    const v=+n[fd]||0,[lo,hi]=TL[k]; const c=v<=lo?["ex","Low"]:v>hi?["bad","High"]:["poor","Medium"];
+    return `<div class="tl" style="--c:${COLORS[c[0]]}"><span>${l}</span><b>${fmt(v,k==="salt"?2:1)} g</b><em>${c[1]}</em></div>`; }).join("");
+  const claims=CLAIMS.filter(c=>n[c.f]!=null&&n[c.f]!=="").map(c=>{ const ok=c.ok(n,bev); const label=typeof c.label==="function"?c.label(n):c.label;
+    return `<div class="row"><span class="${ok?"mark-ok":"mark-no"}" aria-label="${ok?"Qualifies":"Doesn’t qualify"}">${ok?"✓":"✕"}</span><div class="t"><b>${esc(label)}</b><span>${esc(c.rule(bev))}</span></div></div>`; }).join("");
+  const sugarNote=(authority!=="eu"&&+n.sugars_g>0)?`<p class="gnote">Labels list total sugars, while ${A.name} limits cover ${authority==="who"?"free":"added"} sugars, so naturally sweet foods like milk or fruit look worse here than they are.</p>`:"";
+  return `<div class="sec" id="guide"><h2>Against official guidelines</h2>
+    <div class="gcard">
+      <div class="gh"><span>One serving: ${esc(p.serving_label||`${sv} ${unit}`)}</span>
+        <div class="seg small" role="group" aria-label="Guideline source">${Object.entries(DAILY).map(([k,v])=>`<button data-auth="${k}" aria-pressed="${k===authority}">${v.name}</button>`).join("")}</div></div>
+      ${bars}${sugarNote}
+    </div>
+    ${tls?`<h3>UK traffic lights, per 100 ${unit}</h3><div class="tls">${tls}</div>`:""}
+    ${claims?`<h3>EU nutrition claims it qualifies for</h3><div class="rows">${claims}</div>`:""}
+  </div>`;
+}
+function cosmeticRegHTML(sc){
+  const names=st=>[...new Set(sc.ings.filter(i=>i.ref&&i.ref.status===st&&i.ref.text!==FRAG_ALLERGEN).map(i=>i.name))];
+  const allergens=[...new Set(sc.ings.filter(i=>i.ref&&i.ref.text===FRAG_ALLERGEN).map(i=>i.name))];
+  const banned=names("banned"), restricted=names("restricted"), matched=sc.ings.filter(i=>i.ref).length;
+  const r=(color,title,list,empty)=>rowH(list.length?color:"ex",title,list.length?list.join(", "):empty,"");
+  return `<div class="sec"><h2>Against EU cosmetics rules</h2><div class="rows">
+    ${r("bad","Banned in the EU",banned,"None found")}
+    ${r("poor","Restricted in the EU",restricted,"None found")}
+    ${r("good","Declared fragrance allergens",allergens,"None found")}
+    ${rowH("none","Reference database",`${matched} of ${sc.ings.length} ingredients matched. Others are rated by Claude.`,"")}
+  </div></div>`;
+}
+function altScore(a){ return a.kind==="cosmetic"?cosmeticTotal(a.risks||{}):scoreFood(a).total; }
+
+function renderResult(p,from){
+  current=p; lastView=from;
+  const sc=p.kind==="cosmetic"?scoreCosmetic(p):scoreFood(p);
+  const b=band(sc.total);
+  const {bad,good,per}=p.kind==="cosmetic"?cosmeticRows(p,sc):foodRows(p,sc);
+  const alts=(p.alternatives||[]).map(a=>({...a,kind:p.kind,score:altScore({...a,kind:p.kind})})).filter(a=>a.score>sc.total).sort((x,y)=>y.score-x.score);
+  const src={database:"From Open Food Facts, a free public database. If something looks off, check the pack.",label:"Read from your label photo.",estimate:"Typical values for this product, estimated by Claude. Check your pack for exact numbers.",example:"Example product with typical values."}[p.source]||"";
+  $("vResult").innerHTML=`
+    <button class="back" id="backBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>${from==="history"?"History":"Check another"}</button>
+    <div class="hero">${ring(sc.total)}
+      <div style="flex:1;min-width:0">${p.image?`<img class="pimg" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:""}<h1 class="pname">${esc(p.name||"Unnamed product")}</h1><p class="pbrand">${esc(p.brand||"")}</p>
+      <span class="verdict"><span class="dot" style="background:${COLORS[b.k]}"></span>${b.label}</span></div></div>
+    ${p.summary?`<p class="summary">${esc(p.summary)}</p>`:""}
+    <p class="source">${esc(src)}</p>
+    ${bad.length?`<div class="sec"><h2>${p.kind==="cosmetic"?"Ingredients of concern":"Concerns"} ${per?`<span style="font-weight:500">${per}</span>`:""}</h2><div class="rows">${bad.join("")}</div></div>`:""}
+    ${good.length?`<div class="sec"><h2>${p.kind==="cosmetic"?"Everything else":"Good points"} ${per&&!bad.length?`<span style="font-weight:500">${per}</span>`:""}</h2><div class="rows">${good.join("")}</div></div>`:""}
+    ${p.kind==="cosmetic"?cosmeticRegHTML(sc):guideHTML(p)}
+    ${p.offUrl?`<p class="note"><a href="${esc(p.offUrl)}" target="_blank" rel="noopener" style="color:inherit">View or correct this product on ${p.kind==="cosmetic"?"Open Beauty Facts":"Open Food Facts"}</a></p>`:""}
+    ${alts.length?`<div class="sec"><h2>Better choices</h2><div class="rows">${alts.map(a=>`<div class="row alt"><span class="mini" style="background:${COLORS[band(a.score).k]}">${a.score}</span><div class="t"><b>${esc(a.name)}</b><span>${esc(a.why||"")}</span></div></div>`).join("")}</div></div>`:""}
+    <p class="disclaimer">${p.kind==="cosmetic"
+      ?"Scores rank ingredients by the strength of evidence for health and environmental concerns. The riskiest ingredient caps the score."
+      :"Scores combine nutritional quality (60%, based on the Nutri-Score grid), additives (30%) and organic status (10%). A high-risk additive caps the score at 49."}
+      This is general information, not medical advice.</p>`;
+  show("vResult");
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ const arc=document.querySelector("#vResult .arc"); if(arc) arc.style.strokeDashoffset=arc.dataset.target; }));
+}
+$("vResult").addEventListener("click",e=>{
+  if(e.target.closest("#backBtn")){ lastView==="history"?openHistory():show("vScan"); return; }
+  const au=e.target.closest("[data-auth]");
+  if(au){ authority=au.dataset.auth; try{ localStorage.setItem("labelwise-auth",authority); }catch(err){} $("guide").outerHTML=guideHTML(current); return; }
+  const t=e.target.closest("[data-toggle]");
+  if(t){ const open=t.getAttribute("aria-expanded")==="true"; t.setAttribute("aria-expanded",!open); t.nextElementSibling.classList.toggle("hide",open); }
+});
+
+/* ---------------- standards ---------------- */
+function openStandards(){
+  const keys=["energy","fat","sat","sugars","salt","fiber","protein"];
+  const lab={energy:["Energy","kcal"],fat:["Fat","g"],sat:["Saturated fat","g"],sugars:["Sugars","g"],salt:["Salt","g"],fiber:["Fiber","g"],protein:["Protein","g"]};
+  const cell=r=>r?`${r.v.toLocaleString()} ${""}${r.ideal?`<small>ideally ${r.ideal}</small>`:""}`:`<small>no figure</small>`;
+  const daily=`<div class="tw"><table><thead><tr><th>Per day</th>${Object.values(DAILY).map(d=>`<th>${d.name}</th>`).join("")}</tr></thead><tbody>
+    ${keys.map(k=>`<tr><td>${lab[k][0]} <small>${lab[k][1]}, ${["fiber","protein"].includes(k)?"target":"limit"}</small></td>${Object.values(DAILY).map(d=>`<td>${cell(d[k])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const tl=`<div class="tw"><table><thead><tr><th>Per 100 g or ml</th><th>Low</th><th>High</th><th>Drinks low</th><th>Drinks high</th></tr></thead><tbody>
+    ${[["fat","Fat"],["sat","Saturates"],["sugars","Sugars"],["salt","Salt"]].map(([k,l])=>`<tr><td>${l}</td><td>≤ ${TRAFFIC.food[k][0]} g</td><td>&gt; ${TRAFFIC.food[k][1]} g</td><td>≤ ${TRAFFIC.drink[k][0]} g</td><td>&gt; ${TRAFFIC.drink[k][1]} g</td></tr>`).join("")}</tbody></table></div>`;
+  const claims=`<div class="rows">${CLAIMS.map(c=>rowH("ex",typeof c.label==="function"?(c.rule().includes("protein")?"Source / high protein":"Source / high fiber"):c.label,c.rule(false),"")).join("")}</div>`;
+  $("vStandards").innerHTML=`<h1>Standards</h1>
+    <p class="lede">The public reference values every product is compared against, built into the app.</p>
+    <div class="sec"><h2>Daily intake by authority</h2>${daily}</div>
+    <div class="sec"><h2>UK front-of-pack traffic lights</h2>${tl}</div>
+    <div class="sec"><h2>EU nutrition claims</h2>${claims}</div>
+    <div class="sec"><h2>Food additives (${ADDITIVES.length} groups)</h2><input class="search" id="addSearch" type="search" placeholder="Search by E-number or name" aria-label="Search additives"><div class="rows" id="addList"></div></div>
+    <div class="sec"><h2>Cosmetic ingredients (${COSMETIC_DB.length} groups)</h2><input class="search" id="cosSearch" type="search" placeholder="Search by ingredient name" aria-label="Search cosmetic ingredients"><div class="rows" id="cosList"></div></div>
+    <div class="sec"><h2>Sources</h2><ul class="srcs">${SOURCES.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+    <p class="note">A snapshot compiled from these public sources, current to mid-2026. Rules change, so check the original source before relying on a figure.</p></div>`;
+  const ord={high:0,moderate:1,limited:2,none:3};
+  const drawAdd=q=>{ q=q.trim().toLowerCase(); const l=ADDITIVES.filter(a=>!q||a.name.toLowerCase().includes(q)||a.codes.some(c=>c.toLowerCase().includes(q))).sort((a,b)=>ord[a.risk]-ord[b.risk]);
+    $("addList").innerHTML=l.length?l.map(a=>rowH(riskColor(a.risk),`${a.codes.filter(c=>c.startsWith("E")).slice(0,3).join(", ")}${a.codes.filter(c=>c.startsWith("E")).length>3?"…":""} ${a.name}`.trim(),`${RISK_LABEL[a.risk]}. ${a.text}`,badge(a))).join(""):`<div class="row"><div class="t"><span>No match. Products are still rated by Claude when an additive isn’t listed here.</span></div></div>`; };
+  const drawCos=q=>{ q=q.trim().toLowerCase(); const l=COSMETIC_DB.filter(e=>!q||e.name.toLowerCase().includes(q)||e.keys.some(k=>k.includes(q))).sort((a,b)=>ord[a.risk]-ord[b.risk]);
+    $("cosList").innerHTML=l.length?l.map(e=>rowH(riskColor(e.risk),e.name,`${RISK_LABEL[e.risk]}. ${e.text} Covers: ${e.keys.slice(0,6).join(", ")}${e.keys.length>6?"…":""}.`,badge(e))).join(""):`<div class="row"><div class="t"><span>No match. Ingredients not listed here are rated by Claude.</span></div></div>`; };
+  drawAdd(""); drawCos("");
+  $("addSearch").oninput=e=>drawAdd(e.target.value);
+  $("cosSearch").oninput=e=>drawCos(e.target.value);
+  show("vStandards");
+}
+
+/* ---------------- history ---------------- */
+async function openHistory(){
+  show("vHistory");
+  $("histList").innerHTML=`<p class="empty">Loading…</p>`;
+  const list=await store.list();
+  $("syncNote").textContent=list.length?(store.db?"Saved to your Claude account, so it follows you across devices.":"Saved in this browser only."):"";
+  if(!list.length){ $("histList").innerHTML=`<div class="empty"><p>Nothing checked yet.</p><button class="primary" id="goScan">Check a product</button></div>`; return; }
+  $("histList").innerHTML=`<div class="rows hist">${list.map(it=>{ const s=scoreOf(it); const d=new Date(it.savedAt);
+    return `<div class="row" data-open="${esc(it.id)}" tabindex="0" role="button"><span class="mini" style="background:${COLORS[band(s).k]}">${s}</span><div class="t"><b>${esc(it.name)}</b><span>${it.kind==="cosmetic"?"Cosmetic":"Food"} · ${d.toLocaleDateString(undefined,{month:"short",day:"numeric"})}</span></div><button class="del" data-del="${esc(it.id)}" aria-label="Remove ${esc(it.name)}">×</button></div>`; }).join("")}</div>`;
+  $("histList")._items=list;
+}
+$("histList").addEventListener("click",async e=>{
+  if(e.target.id==="goScan"){ show("vScan"); return; }
+  const del=e.target.closest("[data-del]");
+  if(del){ e.stopPropagation(); await store.remove(del.dataset.del); openHistory(); return; }
+  const o=e.target.closest("[data-open]");
+  if(o){ const it=$("histList")._items.find(x=>x.id===o.dataset.open); if(it) renderResult(it,"history"); }
+});
+$("histList").addEventListener("keydown",e=>{ if(e.key==="Enter"&&e.target.dataset.open) e.target.click(); });
+
+/* ---------------- wiring ---------------- */
+document.querySelectorAll("#modeSeg button").forEach(b=>b.onclick=()=>{ setMode(b.dataset.mode); if(!$("vScan").classList.contains("hide")) return; show("vScan"); });
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>b.dataset.tab==="history"?openHistory():b.dataset.tab==="standards"?openStandards():show("vScan"));
+$("examples").addEventListener("click",e=>{ const c=e.target.closest("[data-ex]"); if(c) renderResult({...EXAMPLES[+c.dataset.ex]},"scan"); });
+$("nameIn").addEventListener("input",updateAnalyze);
+$("nameIn").addEventListener("keydown",e=>{ if(e.key==="Enter") analyze(); });
+
+/* ---------------- live scanner ---------------- */
+let stream=null, detector=null, scanTimer=null, capturing=false;
+async function startScan(){
+  $("scanErr").classList.add("hide");
+  try{
+    if(!navigator.mediaDevices?.getUserMedia) throw new Error("no camera api");
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false});
+  }catch(e){ stream=null; $("camIn").click(); return; }
+  capturing=false;
+  const v=$("video"); v.srcObject=stream;
+  $("scanner").hidden=false; document.body.style.overflow="hidden";
+  try{ await v.play(); }catch(e){}
+  detector=null; failCount=0;
+  if("BarcodeDetector" in window){ try{ detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","qr_code"]}); }catch(e){} }
+  $("sHint").textContent="Point at the barcode";
+  $("sStatus").textContent="Looking for a barcode…";
+  scanStarted=Date.now();
+  loopDetect();
+}
+let zx=null, failCount=0, scanCanvas=null, scanStarted=0;
+function zxReader(){
+  if(zx) return zx; if(!window.ZXing) return null;
+  try{
+    const F=ZXing.BarcodeFormat, h=new Map();
+    h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.QR_CODE]);
+    h.set(ZXing.DecodeHintType.TRY_HARDER,true);
+    zx=new ZXing.MultiFormatReader(); zx.setHints(h);
+  }catch(e){ zx=null; }
+  return zx;
+}
+async function detectOnce(v){
+  if(detector&&failCount<3){
+    try{ const c=await detector.detect(v); failCount=0; return c.length?c[0].rawValue:null; }catch(e){ failCount++; }
+  }
+  const r=zxReader(); if(!r||!v.videoWidth) return null;
+  const cw=Math.min(1000,v.videoWidth), k=cw/v.videoWidth;
+  scanCanvas=scanCanvas||document.createElement("canvas");
+  scanCanvas.width=cw; scanCanvas.height=Math.round(v.videoHeight*k);
+  scanCanvas.getContext("2d",{willReadFrequently:true}).drawImage(v,0,0,scanCanvas.width,scanCanvas.height);
+  try{ return r.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(scanCanvas)))).getText(); }
+  catch(e){ return null; }
+}
+function loopDetect(){
+  scanTimer=setTimeout(async()=>{
+    if(!stream||capturing) return;
+    const v=$("video");
+    if(v.readyState>=2){
+      const code=await detectOnce(v);
+      if(code&&!capturing){ onBarcode(code); return; }
+      if(Date.now()-scanStarted>7000) $("sStatus").textContent="No barcode yet. Move closer, or tap the button to capture.";
+    }
+    loopDetect();
+  },200);
+}
+async function onBarcodeOld(raw){
+  capturing=true;
+  const code=/^\d{8,14}$/.test(raw)?raw:null;
+  $("sframe").classList.add("hit"); try{ navigator.vibrate&&navigator.vibrate(40); }catch(e){}
+  try{
+    const hist=code?await store.list():[]; const hit=hist.find(h=>h.barcode===code&&h.kind===mode);
+    if(hit){ stopScan(); renderResult(hit,"scan"); return; }
+  }catch(e){}
+  $("sHint").textContent="Got it. Hold still…"; $("sStatus").textContent=code?`Barcode ${code}`:"Code found";
+  setTimeout(()=>captureFrame(code),700);
+}
+async function captureFrame(code){
+  const v=$("video"); if(!stream||!v.videoWidth){ stopScan(); return; }
+  capturing=true;
+  const k=Math.min(1,1600/Math.max(v.videoWidth,v.videoHeight));
+  const c=document.createElement("canvas"); c.width=Math.round(v.videoWidth*k); c.height=Math.round(v.videoHeight*k);
+  c.getContext("2d").drawImage(v,0,0,c.width,c.height);
+  const blob=await new Promise(r=>c.toBlob(r,"image/jpeg",0.88));
+  stopScan();
+  if(blob) analyze({images:[blob],barcode:code||undefined});
+}
+function stopScan(){
+  clearTimeout(scanTimer);
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  stream=null; $("video").srcObject=null;
+  $("scanner").hidden=true; $("sframe").classList.remove("hit"); document.body.style.overflow="";
+}
+$("scanBtn").onclick=startScan;
+$("sClose").onclick=stopScan;
+$("shutter").onclick=async()=>{
+  if(capturing) return;
+  const code=await detectOnce($("video"));
+  if(code) onBarcode(code); else $("sStatus").textContent="No barcode in view. Move closer and keep it steady.";
+};
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&stream) stopScan(); });
+$("camIn").addEventListener("change",async e=>{
+  const f=e.target.files[0]; e.target.value="";
+  if(!f) return;
+  const code=await decodeFile(f);
+  if(code) lookup(code); else showErr("Couldn’t find a barcode in that photo. Try again closer, or type the number.");
+});
+async function decodeFile(file){
+  try{
+    const bmp=await createImageBitmap(file);
+    const k=Math.min(1,1400/Math.max(bmp.width,bmp.height));
+    const c=document.createElement("canvas"); c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k);
+    c.getContext("2d",{willReadFrequently:true}).drawImage(bmp,0,0,c.width,c.height);
+    if("BarcodeDetector" in window){ try{ const r=await new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e"]}).detect(c); if(r.length) return r[0].rawValue; }catch(e){} }
+    const r=zxReader(); if(!r) return null;
+    return r.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(c)))).getText();
+  }catch(e){ return null; }
+}
+function showErr(t){ show("vScan"); $("scanErr").textContent=t; $("scanErr").classList.remove("hide"); }
+async function onBarcode(raw){
+  capturing=true;
+  $("sframe").classList.add("hit"); try{ navigator.vibrate&&navigator.vibrate(40); }catch(e){}
+  stopScan();
+  if(!/^\d{6,14}$/.test(raw)){ showErr("That’s a QR code, not a product barcode. Point at the striped barcode instead."); return; }
+  lookup(raw);
+}
+$("codeForm").addEventListener("submit",()=>{ const v=$("codeIn").value.replace(/\D/g,""); if(v.length>=6){ $("codeIn").value=""; lookup(v); } else showErr("Type the full number under the barcode."); });
+
+/* ---------------- Open Food Facts lookup ---------------- */
+const OFF_FIELDS="product_name,product_name_en,generic_name,brands,quantity,image_front_small_url,nutriments,additives_tags,labels_tags,categories_tags,serving_quantity,serving_size,ingredients_text,ingredients_text_en";
+async function fetchProduct(host,code){
+  const r=await fetch(`https://${host}/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`);
+  if(!r.ok) return null;
+  const j=await r.json();
+  return j&&j.status===1&&j.product?j.product:null;
+}
+function mapFood(pr,code){
+  const nu=pr.nutriments||{};
+  const g=k=>{ const v=nu[k+"_100g"]; return v===undefined||v===null||v===""||isNaN(+v)?null:+v; };
+  let kcal=g("energy-kcal"); if(kcal==null&&g("energy")!=null) kcal=Math.round(g("energy")/4.184);
+  const salt=g("salt")??(g("sodium")!=null?g("sodium")*2.5:null);
+  const per100={energy_kcal:kcal,fat_g:g("fat"),sat_fat_g:g("saturated-fat"),sugars_g:g("sugars"),salt_g:salt,fiber_g:g("fiber"),protein_g:g("proteins"),
+    fruit_veg_pct:g("fruits-vegetables-nuts")??g("fruits-vegetables-legumes-estimate-from-ingredients")??g("fruits-vegetables-nuts-estimate-from-ingredients")??0};
+  const cats=pr.categories_tags||[];
+  const additives=(pr.additives_tags||[]).map(t=>{ let c=t.replace(/^[a-z]{2}:/,"").toUpperCase(); const ref=lookupAdditive(c);
+    c=c.replace(/^(E\d+)([A-Z]+)$/,(m,x,y)=>x+y.toLowerCase());
+    return {code:c,name:ref?ref.name:"",risk:ref?ref.risk:"none",note:ref?"":"Not assessed in Labelwise’s reference list."}; })
+    .filter((a,i,arr)=>{ const base=a.code.match(/^E\d+/)?.[0]; return !arr.slice(0,i).some(b=>b.code.match(/^E\d+/)?.[0]===base); });
+  const item={kind:"food",barcode:code,source:"database",name:pr.product_name||pr.product_name_en||pr.generic_name||`Product ${code}`,
+    brand:[pr.brands,pr.quantity].filter(Boolean).join(", "),image:pr.image_front_small_url||"",
+    is_beverage:cats.includes("en:beverages")&&!cats.includes("en:dairies"),
+    organic:(pr.labels_tags||[]).some(t=>/organic|eu-bio|biologique/.test(t)),
+    serving_g:+pr.serving_quantity>0?+pr.serving_quantity:null,serving_label:pr.serving_size||"",per100,additives,alternatives:[]};
+  item.nodata=per100.energy_kcal==null||(per100.sugars_g==null&&per100.sat_fat_g==null&&per100.salt_g==null);
+  if(!item.nodata) item.summary=foodSummary(item);
+  return item;
+}
+function foodSummary(p){
+  const sc=scoreFood(p), x=sc.parts, hi=[];
+  if(x.s>=6) hi.push("sugar"); if(x.sf>=6) hi.push("saturated fat"); if(x.na>=6) hi.push("salt"); if(x.e>=6&&!hi.length) hi.push("calories");
+  const good=[]; if(x.fib>=3) good.push("fiber"); if(x.pro>=3&&!x.bev&&(x.e+x.s+x.sf+x.na)<11) good.push("protein");
+  const risky=sc.adds.filter(a=>a.risk==="high"||a.risk==="moderate").length;
+  let t=hi.length?`High in ${hi.join(" and ").replace(/ and (?=.* and )/,", ")}.`:"No major nutritional red flags.";
+  if(good.length) t+=` A good source of ${good.join(" and ")}.`;
+  if(risky) t+=` Contains ${risky} additive${risky>1?"s":""} with a known risk.`;
+  return t;
+}
+function mapCosmetic(pr,code){
+  const txt=pr.ingredients_text_en||pr.ingredients_text||"";
+  const ingredients=txt.split(/[,;•](?![^()]*\))/).map(x=>x.replace(/[*.\s]+$/,"").replace(/^\s*ingredients?\s*:\s*/i,"").trim()).filter(x=>x&&x.length<80).map(name=>({name,risk:"none"}));
+  const item={kind:"cosmetic",barcode:code,source:"database",name:pr.product_name||pr.product_name_en||`Product ${code}`,
+    brand:[pr.brands,pr.quantity].filter(Boolean).join(", "),image:pr.image_front_small_url||"",ingredients,alternatives:[]};
+  item.nodata=!ingredients.length;
+  if(!item.nodata){ const sc=scoreCosmetic(item); const h=sc.ings.filter(i=>i.risk==="high").length, m=sc.ings.filter(i=>i.risk==="moderate").length;
+    item.summary=h||m?`${h?`${h} high-risk`:""}${h&&m?" and ":""}${m?`${m} moderate-risk`:""} ingredient${h+m>1?"s":""} found.`:"No ingredients with a known risk in the reference list."; }
+  return item;
+}
+function renderMessage(title,text,linkUrl,linkText){
+  $("vResult").innerHTML=`<button class="back" id="backBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>Scan another</button>
+    <div class="hero" style="display:block"><h1 class="pname">${esc(title)}</h1><p class="summary">${esc(text)}</p>
+    ${linkUrl?`<a class="primary" style="display:inline-block;text-decoration:none;margin-top:8px" href="${esc(linkUrl)}" target="_blank" rel="noopener">${esc(linkText)}</a>`:""}</div>`;
+  lastView="scan"; show("vResult");
+}
+async function lookup(code){
+  $("scanErr").classList.add("hide");
+  try{ const hist=await store.list(); const hit=hist.find(h=>h.barcode===code); if(hit){ renderResult(hit,"scan"); return; } }catch(e){}
+  show("vLoading"); $("loadMsg").textContent=`Barcode ${code}`;
+  const order=mode==="cosmetic"
+    ?[["world.openbeautyfacts.org","cosmetic"],["world.openfoodfacts.org","food"]]
+    :[["world.openfoodfacts.org","food"],["world.openbeautyfacts.org","cosmetic"]];
+  try{
+    for(const [host,kind] of order){
+      const pr=await fetchProduct(host,code); if(!pr) continue;
+      const item=kind==="food"?mapFood(pr,code):mapCosmetic(pr,code);
+      item.offUrl=`https://${host}/product/${code}`;
+      if(item.nodata){ renderMessage(item.name,kind==="food"?"This product is in Open Food Facts, but its nutrition table hasn’t been filled in yet, so it can’t be scored.":"This product is in Open Beauty Facts, but its ingredient list hasn’t been filled in yet, so it can’t be scored.",item.offUrl,"Add the missing details"); return; }
+      item.id="scan-"+Date.now(); item.savedAt=Date.now();
+      await store.add(item); renderResult(item,"scan"); return;
+    }
+    renderMessage("Not in the database yet",`Barcode ${code} isn’t in Open Food Facts or Open Beauty Facts. Anyone can add it in a couple of minutes with a few photos.`,`https://world.openfoodfacts.org/cgi/product.pl?type=add&code=${code}`,"Add this product");
+  }catch(e){ showErr("Couldn’t reach Open Food Facts. Check your connection and try again."); }
+}
+
+$("analyzeBtn").onclick=()=>analyze();
+$("stopBtn").onclick=()=>ctl?.abort();
+
+setMode("food");
+(async()=>{
+  store.init();
+  sample=null;
+  updateAnalyze();
+})();
+</script>
+</body>
+</html>
