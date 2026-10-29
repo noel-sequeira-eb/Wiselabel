@@ -242,6 +242,16 @@ td.win{color:var(--ex);font-weight:800}
 .tchip .mini{width:32px;height:32px;font-size:12px}
 .tchip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sclose.done{width:auto;padding:0 18px;border-radius:999px;font-size:15px;font-weight:700}
+
+.frow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.frow:last-child{border-bottom:0}
+.frow>span{flex:1;font-weight:600;font-size:15px}
+.frow input:not([type=checkbox]){width:100px;border:1.5px solid var(--line);background:var(--bg);border-radius:10px;padding:8px 10px;text-align:right;min-width:0}
+.frow input:focus{outline:none;border-color:var(--brand)}
+.frow.wide input{flex:2;width:auto;text-align:left}
+.frow em{font-style:normal;color:var(--muted);font-size:13px;width:34px}
+textarea.search{font:inherit;color:inherit;resize:vertical;line-height:1.4}
+.keyin{width:100%;border:1.5px solid var(--line);background:var(--bg);border-radius:10px;padding:9px 10px;margin-top:8px;font:inherit;color:inherit}
 </style>
 </head>
 <body>
@@ -268,18 +278,20 @@ td.win{color:var(--ex);font-weight:800}
     </button>
     <input type="file" accept="image/*" capture="environment" id="camIn" class="hidden-input" aria-hidden="true" tabindex="-1">
     <input type="file" accept="image/*" capture="environment" id="ocrIn" class="hidden-input" aria-hidden="true" tabindex="-1">
+    <input type="file" accept="image/*" capture="environment" id="nutIn" class="hidden-input" aria-hidden="true" tabindex="-1">
+    <input type="file" accept="image/*" capture="environment" id="ingIn" class="hidden-input" aria-hidden="true" tabindex="-1">
     <div class="or">or</div>
     <form class="field" id="codeForm" onsubmit="return false">
       <input id="codeIn" type="text" inputmode="numeric" placeholder="Type the barcode number" autocomplete="off" aria-label="Barcode number">
       <button class="primary" type="submit">Look up</button>
     </form>
-    <p class="note" id="ocrLink" style="text-align:center"><a href="#" id="ocrStart" style="color:inherit">Read a cosmetic’s ingredient list with your camera</a></p>
+    <p class="note" id="ocrLink" style="text-align:center"><a href="#" id="ocrStart" style="color:inherit">No barcode? Read the nutrition label instead</a></p>
     <div class="err hide" id="scanErr" role="alert"></div>
     <div class="examples">
       <h2>Try an example</h2>
       <div class="chips" id="examples"></div>
     </div>
-    <p class="disclaimer">Product data from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Food Facts</a> and <a href="https://world.openbeautyfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Beauty Facts</a>, available under the Open Database License.</p>
+    <p class="disclaimer">Product data from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Food Facts</a> and <a href="https://world.openbeautyfacts.org" target="_blank" rel="noopener" style="color:inherit">Open Beauty Facts</a> (Open Database License), with <a href="https://fdc.nal.usda.gov" target="_blank" rel="noopener" style="color:inherit">USDA FoodData Central</a> as a backup.</p>
   </section>
 
   <section id="vLoading" class="hide loading" aria-live="polite">
@@ -649,7 +661,8 @@ const SOURCES=[
  "EU Regulation 1333/2008 and EFSA re-evaluations of food additives",
  "IARC Monographs classifications (incl. aspartame 2023, talc 2024)",
  "EU Cosmetics Regulation 1223/2009, Annexes II, III and V, with later amendments",
- "Product data: Open Food Facts and Open Beauty Facts (Open Database License)"
+ "Product data: Open Food Facts and Open Beauty Facts (Open Database License)",
+ "Backup product data: USDA FoodData Central, Branded Foods (public domain)"
 ];
 
 
@@ -797,10 +810,10 @@ function conflicts(p){
   if(d.includes("kosher")&&!lb.some(t=>/kosher/.test(t))) out.push({level:"poor",text:"Not labeled kosher"});
   return out;
 }
-function alertsHTML(list){
+function alertsHTML(list,inferred){
   if(!list.length) return "";
   const bad=list.some(c=>c.level==="bad");
-  return `<div class="alerts ${bad?"":"warn"}" role="alert"><b>${bad?"⚠ Not right for you":"Check before buying"}</b><ul>${list.map(c=>`<li>${esc(c.text)}</li>`).join("")}</ul></div>`;
+  return `<div class="alerts ${bad?"":"warn"}" role="alert"><b>${bad?"⚠ Not right for you":"Check before buying"}</b><ul>${list.map(c=>`<li>${esc(c.text)}</li>`).join("")}</ul>${inferred?`<p class="note" style="margin:6px 0 0">Checked from the ingredient list. Read the pack if an allergy is serious.</p>`:""}</div>`;
 }
 const NOVA={1:["ex","Unprocessed or minimally processed"],2:["good","Processed culinary ingredient"],3:["poor","Processed"],4:["bad","Ultra-processed"]};
 
@@ -819,6 +832,7 @@ function show(view){
 function setMode(m){
   mode=m;
   document.querySelectorAll("#modeSeg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.mode===m));
+  $("ocrStart").textContent=m==="food"?"No barcode? Read the nutrition label instead":"Read a cosmetic’s ingredient list with your camera";
   $("scanLede").textContent=m==="food"?"Scan any barcode and get a health score out of 100, with the reasons behind it.":"Scan any cosmetic’s barcode and see which ingredients carry a known risk.";
   renderExamples();
 }
@@ -885,15 +899,17 @@ function renderResult(p,from){
   const b=band(sc.total);
   const {bad,good,per}=p.kind==="cosmetic"?cosmeticRows(p,sc):foodRows(p,sc);
   const src={database:`From ${p.kind==="cosmetic"?"Open Beauty Facts":"Open Food Facts"}, a free public database. If something looks off, check the pack.`,
-    ocr:"Read from your photo, on this phone. Check spelling if an ingredient looks off.",example:"Example product with typical values."}[p.source]||"";
+    ocr:p.kind==="cosmetic"?"Read from your photo, on this phone. Check spelling if an ingredient looks off.":"Read from your photo of the label and checked by you.",
+    usda:"From USDA FoodData Central, as reported by the brand.",manual:"Entered by you from the label.",example:"Example product with typical values."}[p.source]||"";
   const tags=[];
   if(p.kind==="food") tags.push(`<span class="tag"><i style="background:${COLORS[{A:"ex",B:"good",C:"poor",D:"poor",E:"bad"}[sc.grade]]}"></i>Nutri-Score ${sc.grade}</span>`);
   if(p.nova&&NOVA[p.nova]) tags.push(`<span class="tag"><i style="background:${COLORS[NOVA[p.nova][0]]}"></i>${NOVA[p.nova][1]}</span>`);
   const staticAlts=(p.alternatives||[]).map(a=>({...a,kind:p.kind,score:a.kind==="cosmetic"||p.kind==="cosmetic"?cosmeticTotal(a.risks||{}):scoreFood(a).total})).filter(a=>a.score>sc.total).sort((x,y)=>y.score-x.score);
-  const live=p.source==="database"&&p.categories&&p.categories.length;
+  const live=p.source==="database"&&(p.categories||[]).some(c=>c.startsWith("en:"));
+  const swaps=!live&&!staticAlts.length?swapsHTML(p):"";
   $("vResult").innerHTML=`
     ${backBtn(lastView==="history"?"History":"Scan another")}
-    ${alertsHTML(conflicts(p))}
+    ${alertsHTML(conflicts(p),p.inferred)}
     <div class="hero">${ring(sc.total)}
       <div style="flex:1;min-width:0">${p.image?`<img class="pimg" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:""}
       <h1 class="pname">${esc(p.name||"Unnamed product")}</h1><p class="pbrand">${esc(p.brand||"")}</p>
@@ -905,7 +921,8 @@ function renderResult(p,from){
     ${good.length?`<div class="sec"><h2>${p.kind==="cosmetic"?"Everything else":"Good points"} ${per&&!bad.length?`<span style="font-weight:500">${per}</span>`:""}</h2><div class="rows">${good.join("")}</div></div>`:""}
     ${p.kind==="cosmetic"?cosmeticRegHTML(sc):guideHTML(p)}
     ${live?`<div class="sec"><h2>Better choices</h2><div class="rows" id="betterList"><div class="row"><div class="t"><span>Looking for better-rated products in this category…</span></div></div></div></div>`
-      :staticAlts.length?`<div class="sec"><h2>Better choices</h2><div class="rows">${staticAlts.map(a=>`<div class="row alt">${mini(a.score)}<div class="t"><b>${esc(a.name)}</b><span>${esc(a.why||"")}</span></div></div>`).join("")}</div></div>`:""}
+      :staticAlts.length?`<div class="sec"><h2>Better choices</h2><div class="rows">${staticAlts.map(a=>`<div class="row alt">${mini(a.score)}<div class="t"><b>${esc(a.name)}</b><span>${esc(a.why||"")}</span></div></div>`).join("")}</div></div>`
+      :swaps&&sc.total<75?`<div class="sec"><h2>Healthier swaps</h2><div class="rows">${swaps}</div></div>`:""}
     <div class="btnrow"><button class="ghost" id="cmpBtn">Compare with another product</button>
     ${p.offUrl?`<a class="ghost" style="text-align:center;text-decoration:none;color:inherit" href="${esc(p.offUrl)}" target="_blank" rel="noopener">View or correct the data</a>`:""}</div>
     <p class="disclaimer">${p.kind==="cosmetic"
@@ -951,7 +968,8 @@ async function loadBetter(p){
     if(current!==p||!$("betterList")) return;
     $("betterList").innerHTML=list.length?list.map((a,i)=>{ const s=scoreOf(a);
       return `<button class="row altrow" data-alt="${i}">${a.image?`<img class="thumbimg" src="${esc(a.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:""}${mini(s)}<div class="t"><b>${esc(a.name)}</b><span>${esc(a.brand||"")}</span></div><span class="gain">+${s-scoreOf(p)}</span></button>`; }).join("")
-      :`<div class="row"><div class="t"><span>${scoreOf(p)>=75?"This is already one of the best-rated products in its category.":"No better-rated products found in this category yet."}</span></div></div>`;
+      :scoreOf(p)>=75?`<div class="row"><div class="t"><span>This is already one of the best-rated products in its category.</span></div></div>`
+      :(swapsHTML(p)||`<div class="row"><div class="t"><span>No better-rated products found in this category yet.</span></div></div>`);
   };
   if(p.better&&Date.now()-(p.betterAt||0)<7*864e5){ draw(p.better); return; }
   try{
@@ -959,7 +977,7 @@ async function loadBetter(p){
     p.better=list; p.betterAt=Date.now();
     if(p.id) store.add(p);
     draw(list);
-  }catch(e){ if(current===p&&$("betterList")) $("betterList").innerHTML=`<div class="row"><div class="t"><span>${navigator.onLine?"Couldn’t load suggestions right now.":"Suggestions need an internet connection."}</span></div></div>`; }
+  }catch(e){ if(current===p&&$("betterList")) $("betterList").innerHTML=swapsHTML(p)||`<div class="row"><div class="t"><span>${navigator.onLine?"Couldn’t load suggestions right now.":"Suggestions need an internet connection."}</span></div></div>`; }
 }
 
 /* ---------- compare ---------- */
@@ -1035,11 +1053,14 @@ function openProfile(){
     <div class="sec"><h2>Settings</h2><div class="rows">
       <div class="setrow"><div class="t"><b>Beep when a barcode is read</b></div><button class="switch" id="soundSw" role="switch" aria-checked="${profile.sound}" aria-label="Beep when a barcode is read"></button></div>
       ${standalone?"":`<div class="setrow"><div class="t"><b>Install Wiselabel</b><span style="display:block;font-size:13px;color:var(--muted)">${installEvt?"Adds it to your home screen as a full-screen app that works offline.":"In Chrome, open the ⋮ menu and choose Install app or Add to Home screen."}</span></div>${installEvt?`<button class="primary" id="installBtn">Install</button>`:""}</div>`}
+      <div class="setrow" style="display:block"><div class="t"><b>USDA backup database key</b><span style="display:block;font-size:13px;color:var(--muted)">Optional. Without a key, lookups share a small public allowance. A free key from <a href="https://api.data.gov/signup/" target="_blank" rel="noopener" style="color:inherit">api.data.gov</a> takes a minute and lifts the limit.</span></div>
+        <input class="keyin" id="usdaKey" type="text" autocomplete="off" spellcheck="false" placeholder="Paste your key" value="${esc(profile.usdaKey||"")}"></div>
       <div class="setrow"><div class="t"><b>Clear history</b><span style="display:block;font-size:13px;color:var(--muted)">${store.all().length} saved products</span></div><button class="ghost" id="clearBtn" style="margin:0">Clear</button></div>
     </div></div>
-    <p class="disclaimer">Wiselabel stores everything on this phone. The only thing it sends anywhere is the barcode number, to Open Food Facts, to look the product up.</p>`;
+    <p class="disclaimer">Wiselabel stores everything on this phone. The only thing it sends anywhere is the barcode number, to Open Food Facts and USDA FoodData Central, to look the product up.</p>`;
   show("vProfile");
 }
+$("vProfile").addEventListener("change",e=>{ if(e.target.id==="usdaKey"){ profile.usdaKey=e.target.value.trim(); saveProfile(); usdaLimited=false; } });
 $("vProfile").addEventListener("click",async e=>{
   const c=e.target.closest("[data-pk]");
   if(c){ const k=c.dataset.pk, v=c.dataset.pv, l=profile[k]; profile[k]=l.includes(v)?l.filter(x=>x!==v):[...l,v]; saveProfile(); c.setAttribute("aria-pressed",profile[k].includes(v)); return; }
@@ -1181,7 +1202,7 @@ function mapProduct(pr,code,kind,host){
     organic:(pr.labels_tags||[]).some(t=>/organic|eu-bio|biologique/.test(t)),
     serving_g:+pr.serving_quantity>0?+pr.serving_quantity:null,serving_label:pr.serving_size||"",per100,additives,alternatives:[],
     nova:+pr.nova_group||null,allergens:pr.allergens_tags||[],traces:pr.traces_tags||[],analysis:pr.ingredients_analysis_tags||[],labels:pr.labels_tags||[],
-    tagsKnown:true,hasIngredients:!!(pr.ingredients_text||pr.ingredients_text_en)};
+    tagsKnown:true,hasIngredients:!!(pr.ingredients_text||pr.ingredients_text_en),ingredientsText:(pr.ingredients_text_en||pr.ingredients_text||"").slice(0,1500)};
   item.nodata=per100.energy_kcal==null||(per100.sugars_g==null&&per100.sat_fat_g==null&&per100.salt_g==null);
   if(!item.nodata) item.summary=foodSummary(item);
   return item;
@@ -1212,6 +1233,10 @@ async function getItem(code){
     item.id="scan-"+code; item.savedAt=Date.now();
     store.add(item); return {item};
   }
+  {
+    const f=await fetchUSDA(code).catch(()=>null);
+    if(f){ const item=mapUSDA(f,code); if(item.nodata) return {nodata:item}; item.id="scan-"+code; item.savedAt=Date.now(); store.add(item); return {item}; }
+  }
   return {notfound:true};
 }
 async function lookup(code){
@@ -1220,19 +1245,25 @@ async function lookup(code){
   try{
     const res=await getItem(code);
     if(res.item){ if(compareBase) renderCompare(compareBase,res.item); else renderResult(res.item,"scan"); return; }
-    const ocrBtn=`<button class="ghost" data-ocr="${code}">Read the ingredient list with your camera</button>`;
-    if(res.nodata){ const it=res.nodata;
-      renderMessage(it.name,it.kind==="food"?"This product is in Open Food Facts, but its nutrition table hasn’t been filled in yet, so it can’t be scored.":"This product is in Open Beauty Facts, but its ingredient list hasn’t been filled in yet.",
-        `<a class="primary" style="text-decoration:none;text-align:center" href="${esc(it.offUrl)}" target="_blank" rel="noopener">Add the missing details</a>${it.kind==="cosmetic"?ocrBtn:""}`); return; }
-    renderMessage("Not in the database yet",`Barcode ${code} isn’t in Open Food Facts or Open Beauty Facts. Anyone can add it in a couple of minutes. If it’s a cosmetic, you can also photograph its ingredient list and Wiselabel will read it on your phone.`,
-      `<a class="primary" style="text-decoration:none;text-align:center" href="https://world.openfoodfacts.org/cgi/product.pl?type=add&code=${code}" target="_blank" rel="noopener">Add this product</a>${ocrBtn}`);
+    const ocrBtn=`<button class="ghost" data-ocr="${code}">Read the cosmetic ingredient list</button>`;
+    const foodBtns=`<button class="primary" data-ocrfood="${code}">Photograph the nutrition label</button><button class="ghost" data-manual="${code}">Type the numbers in</button>`;
+    if(res.nodata){ const it=res.nodata; lastNodata=it;
+      if(it.kind==="food"){ renderMessage(it.name,"This product is in the database, but its nutrition table hasn’t been filled in yet. Photograph the label and Wiselabel will read it, then remember it for next time.",foodBtns); return; }
+      renderMessage(it.name,"This product is in Open Beauty Facts, but its ingredient list hasn’t been filled in yet.",ocrBtn); return; }
+    lastNodata=null;
+    const limitNote=usdaLimited?" The backup database is busy right now. Adding your own free key in Profile fixes that.":"";
+    renderMessage("Not in the databases yet",(mode==="cosmetic"
+        ?`Barcode ${code} isn’t in Open Beauty Facts or Open Food Facts. Photograph the ingredient list and Wiselabel will read it on your phone.`
+        :`Barcode ${code} isn’t in Open Food Facts or USDA FoodData Central. Photograph the nutrition label and Wiselabel will read it, then remember it next time you scan.`)+limitNote,
+      (mode==="cosmetic"?ocrBtn.replace("ghost","primary")+`<button class="ghost" data-ocrfood="${code}">It’s food: read the nutrition label</button>`:foodBtns+ocrBtn)+
+      `<a class="ghost" style="text-decoration:none;text-align:center;color:inherit" href="https://world.openfoodfacts.org/cgi/product.pl?type=add&code=${code}" target="_blank" rel="noopener">Add it to Open Food Facts for everyone</a>`);
   }catch(e){
     showErr(navigator.onLine?"Couldn’t reach Open Food Facts. Try again in a moment.":"You’re offline. Products you’ve scanned before still open from History.");
   }
 }
 
 /* ---------- read a cosmetic ingredient list on the phone (OCR) ---------- */
-let ocrCode=null;
+let ocrCode=null, lastNodata=null;
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 function startOcr(code){ ocrCode=code||null; $("ocrIn").click(); }
 $("ocrIn").addEventListener("change",async e=>{
@@ -1255,11 +1286,16 @@ $("ocrIn").addEventListener("change",async e=>{
     if(compareBase) renderCompare(compareBase,item); else renderResult(item,"scan");
   }catch(err){ showErr(navigator.onLine?"The text reader couldn’t run. Try again.":"The text reader needs an internet connection the first time."); }
 });
-$("ocrStart").onclick=e=>{ e.preventDefault(); startOcr(null); };
+$("ocrStart").onclick=e=>{ e.preventDefault(); mode==="cosmetic"?startOcr(null):startFoodOcr(null); };
 
 /* ---------- wiring ---------- */
 $("vResult").addEventListener("click",e=>{
-  if(e.target.closest("#backBtn")){ lastView==="history"?openHistory():show("vScan"); return; }
+  if(e.target.closest("#backBtn")){ draft=null; lastView==="history"?openHistory():show("vScan"); return; }
+  const of=e.target.closest("[data-ocrfood]"); if(of){ const n=lastNodata&&lastNodata.barcode===of.dataset.ocrfood?lastNodata:null; startFoodOcr(of.dataset.ocrfood,n?.name,n?.ingredientsText); return; }
+  const mn=e.target.closest("[data-manual]"); if(mn){ const n=lastNodata&&lastNodata.barcode===mn.dataset.manual?lastNodata:null; openDraft({barcode:mn.dataset.manual,name:n?.name||"",ingredients:n?.ingredientsText||"",source:"manual"}); return; }
+  const pr=e.target.closest("[data-per]"); if(pr&&draft){ draft.per=pr.dataset.per; renderDraft(); return; }
+  if(e.target.closest("#draftSave")){ saveDraft(); return; }
+  if(e.target.closest("#ocrIngBtn")){ $("ingIn").click(); return; }
   if(e.target.closest("#cmpBtn")){ startCompare(); return; }
   const ocr=e.target.closest("[data-ocr]"); if(ocr){ startOcr(ocr.dataset.ocr); return; }
   const op=e.target.closest("[data-open]"); if(op&&$("vResult")._cmp){ renderResult($("vResult")._cmp[op.dataset.open],"scan"); return; }
@@ -1278,6 +1314,243 @@ $("scanBtn").onclick=startScan;
 $("cmpCancel").onclick=cancelCompare;
 setMode("food");
 if("serviceWorker" in navigator&&location.protocol==="https:") navigator.serviceWorker.register("./sw.js").catch(()=>{});
+
+/* ---------- reading ingredient lists: additives, allergens, diet ---------- */
+const ADD_ALIASES=[
+ [/\b(soy |soya |sunflower )?lecithin/,"E322"],[/caramel colou?r/,"E150D"],[/sodium benzoate/,"E211"],[/potassium benzoate/,"E212"],[/benzoic acid/,"E210"],
+ [/potassium sorbate/,"E202"],[/sorbic acid/,"E200"],[/citric acid/,"E330"],[/ascorbic acid/,"E300"],[/phosphoric acid/,"E338"],
+ [/sodium aluminu?m phosphate/,"E541"],[/(mono|di|tri)?sodium (acid )?(pyro)?phosphate/,"E339"],[/(mono|di|tri)?calcium phosphate/,"E341"],[/(mono|di|tri)?potassium phosphate/,"E340"],
+ [/sodium (tri)?polyphosphate/,"E451"],[/sodium hexametaphosphate/,"E452"],[/sodium acid pyrophosphate/,"E450"],[/carrageenan/,"E407"],[/xanthan gum/,"E415"],
+ [/guar gum/,"E412"],[/locust bean gum|carob bean gum/,"E410"],[/gellan gum/,"E418"],[/gum arabic|acacia gum/,"E414"],[/\bpectin/,"E440"],[/\bagar\b/,"E406"],
+ [/cellulose gum|carboxymethyl ?cellulose/,"E466"],[/polysorbate ?80/,"E433"],[/polysorbate ?60/,"E435"],[/mono[- ]?(and|&) ?di[- ]?glycerides|monoglycerides/,"E471"],
+ [/\bdatem\b|diacetyl tartaric/,"E472E"],[/sodium stearoyl(-| )?2?-?lactylate/,"E481"],[/calcium stearoyl/,"E482"],[/polyglycerol polyricinoleate|\bpgpr\b/,"E476"],
+ [/monosodium glutamate|\bmsg\b/,"E621"],[/disodium inosinate/,"E631"],[/disodium guanylate/,"E627"],[/aspartame/,"E951"],[/acesulfame/,"E950"],[/sucralose/,"E955"],
+ [/saccharin/,"E954"],[/cyclamate/,"E952"],[/neotame/,"E961"],[/advantame/,"E969"],[/steviol|rebaudioside|stevia extract/,"E960"],[/erythritol/,"E968"],
+ [/sorbitol/,"E420"],[/maltitol/,"E965"],[/xylitol/,"E967"],[/isomalt/,"E953"],[/red (no\.? ?|#)?40|allura red/,"E129"],[/yellow (no\.? ?|#)?5\b|tartrazine/,"E102"],
+ [/yellow (no\.? ?|#)?6\b|sunset yellow/,"E110"],[/blue (no\.? ?|#)?1\b|brilliant blue/,"E133"],[/blue (no\.? ?|#)?2\b|indigo carmine/,"E132"],[/red (no\.? ?|#)?3\b|erythrosine/,"E127"],
+ [/titanium dioxide/,"E171"],[/\bbha\b|butylated hydroxyanisole/,"E320"],[/\bbht\b|butylated hydroxytoluene/,"E321"],[/\btbhq\b|tert-?butylhydroquinone/,"E319"],
+ [/sodium nitrite/,"E250"],[/potassium nitrite/,"E249"],[/sodium nitrate/,"E251"],[/potassium nitrate/,"E252"],[/propyl gallate/,"E310"],
+ [/calcium propionate/,"E282"],[/sodium propionate/,"E281"],[/(sodium |potassium )?(meta)?bisulph?fite|sulph?ur dioxide/,"E223"],[/annatto/,"E160B"],
+ [/paprika extract|paprika oleoresin/,"E160C"],[/beta[- ]?carotene/,"E160A"],[/silicon dioxide|silica\b/,"E551"],[/calcium carbonate/,"E170"],
+ [/sodium bicarbonate|baking soda/,"E500"],[/ammonium bicarbonate/,"E503"],[/lactic acid/,"E270"],[/malic acid/,"E296"],[/tartaric acid/,"E334"],
+ [/sodium citrate/,"E331"],[/potassium citrate/,"E332"],[/calcium citrate/,"E333"],[/tocopherols?/,"E306"],[/rosemary extract/,"E392"],
+ [/modified (food |corn |tapioca |potato )?starch/,"E1422"],[/polydextrose/,"E1200"],[/propylene glycol/,"E1520"],[/dimethylpolysiloxane/,"E900"],
+ [/sodium alginate/,"E401"],[/calcium chloride/,"E509"],[/potassium chloride/,"E508"],[/calcium sulph?fate/,"E516"],[/natamycin/,"E235"],[/nisin/,"E234"],
+ [/sodium erythorbate/,"E316"],[/potassium bromate/,"BROMATE"],[/brominated vegetable oil/,"BVO"],[/carmine|cochineal/,"E120"],[/shellac|confectioner'?s glaze/,"E904"],
+ [/carnauba wax/,"E903"],[/beeswax/,"E901"],[/glycerin|glycerol/,"E422"]
+];
+function parseAdditives(text){
+  const t=" "+String(text||"").toLowerCase().replace(/\s+/g," ")+" ", out=[], seen=new Set();
+  const push=c=>{ const ref=lookupAdditive(c); const b=c==="BROMATE"||c==="BVO"?c:baseCode(c); if(seen.has(b)) return; seen.add(b);
+    out.push({code:c.startsWith("E")?c.replace(/^(E\d+)([A-Z]+)$/,(m,x,y)=>x+y.toLowerCase()):"",name:ref?ref.name:c,risk:ref?ref.risk:"unknown"}); };
+  (t.match(/\be\s?-?\d{3,4}[a-d]?\b/g)||[]).forEach(m=>push(m.replace(/[\s-]/g,"").toUpperCase()));
+  ADD_ALIASES.forEach(([re,c])=>{ if(re.test(t)) push(c); });
+  return out;
+}
+const ALLERGEN_WORDS={
+  gluten:/wheat|barley|\brye\b|spelt|\bmalt|triticale|kamut|semolina|durum|couscous|bulgur|seitan|gluten|farina/,
+  milk:/milk|whey|casein|lactose|butter|cream|cheese|yogh?urt|ghee|\blait\b|lactalbumin|curd/,
+  eggs:/\beggs?\b|albumen|egg white|egg yolk|\bovo/, nuts:/tree nut|almond|hazelnut|walnut|cashew|pecan|pistachio|macadamia|brazil nut|pine nut|filbert|praline/,
+  peanuts:/peanut|arachide|groundnut/, soybeans:/\bsoy|soya|edamame|tofu|tempeh|miso/,
+  fish:/\bfish|anchov|salmon|tuna|\bcod\b|pollock|sardine|tilapia|haddock|mackerel/, crustaceans:/shrimp|prawn|crab|lobster|crayfish|krill/,
+  molluscs:/\bclams?\b|mussel|oyster|squid|scallop|octopus|snail|calamari/, "sesame-seeds":/sesame|tahini/, mustard:/mustard/, celery:/celery|celeriac/,
+  lupin:/lupin/, "sulphur-dioxide-and-sulphites":/sulph?ite|sulph?ur dioxide|bisulph?ite|e22[0-8]\b/
+};
+function inferTags(text){
+  let t=String(text||"").toLowerCase();
+  const cut=t.search(/may contain|peut contenir|made in a facility|manufactured on equipment|traces? of/);
+  let main=cut>=0?t.slice(0,cut):t, traces=cut>=0?t.slice(cut):"";
+  const clean=s=>s.replace(/(peanut|cocoa|shea|nut|almond|apple|cashew|sunflower|seed) butter/g,"").replace(/(coconut|almond|oat|soy|soya|rice|cashew|hemp) (milk|cream|yogh?urt)/g,"").replace(/cream of tartar|ice cream flavou?r|buttermilk flavou?r/g,"");
+  main=clean(main); traces=clean(traces);
+  const allergens=[],tr=[];
+  for(const [k,re] of Object.entries(ALLERGEN_WORDS)){ if(re.test(main)) allergens.push("en:"+k); else if(re.test(traces)) tr.push("en:"+k); }
+  const meat=/gelatin|beef|pork|chicken|turkey|\bham\b|bacon|lard|tallow|anchov|\bfish|shrimp|\bmeat|carmine|cochineal|e120\b|isinglass|rennet|collagen/.test(main);
+  const animal=meat||/honey|beeswax|milk|whey|casein|lactose|butter|cream|cheese|\beggs?\b|yogh?urt|ghee|lanolin|shellac|e904\b|e901\b/.test(main);
+  const vague=/natural flavou?r|mono[- ]?(and|&) ?di[- ]?glycerides|e471\b|vitamin d3/.test(main);
+  const analysis=[meat?"en:non-vegetarian":vague?"en:maybe-vegetarian":"en:vegetarian", animal?"en:non-vegan":vague?"en:maybe-vegan":"en:vegan"];
+  if(/\bpalm/.test(main)) analysis.push("en:palm-oil");
+  return {allergens,traces:tr,analysis};
+}
+
+/* ---------- built-in healthier swaps ---------- */
+const SWAPS=[
+ {k:"food",re:/\bsodas?\b|soft[- ]drink|\bcola\b|carbonated/,s:[["Sparkling water with a splash of juice","Same fizz with a fraction of the sugar."],["Unsweetened iced tea","Flavor without sugar or caramel coloring."],["Kombucha, low sugar","Fizzy, usually under 4 g of sugar per 100 ml."]]},
+ {k:"food",re:/energy[- ]drink/,s:[["Black coffee or plain tea","Caffeine without the sugar or additives."],["Sparkling water with citrus","For the refreshment without the stimulants."]]},
+ {k:"food",re:/juice|nectar|fruit[- ]drink/,s:[["Whole fruit","All the fiber that juicing removes."],["Water infused with fruit slices","Flavor without the concentrated sugar."],["Juice diluted half and half with water","Halves the sugar per glass."]]},
+ {k:"food",re:/hazelnut[- ]spread|chocolate[- ]spread|cocoa-and-hazelnut|sweet[- ]spread/,s:[["100% nut butter","Just ground nuts, no added sugar."],["Mashed banana with cocoa powder","Sweet and chocolatey with fruit sugars and fiber."]]},
+ {k:"food",re:/breakfast[- ]cereal|cereal|granola|muesli/,s:[["Plain rolled oats","Wholegrain, high fiber, nothing added. Sweeten with fruit."],["Unsweetened muesli","Grains, nuts and dried fruit without added sugar."],["Shredded wholewheat","One ingredient, no added sugar or salt."]]},
+ {k:"food",re:/cereal[- ]bar|granola[- ]bar|snack[- ]bar|protein[- ]bar/,s:[["A handful of unsalted nuts","Protein and healthy fats, no added sugar."],["Fruit and nut bars with 3–4 ingredients","Look for no added sugar or syrups."]]},
+ {k:"food",re:/biscuit|cookie|cracker/,s:[["Oatcakes","Wholegrain with far less sugar."],["Rye crispbread","High fiber, low fat."],["Fresh fruit with a few nuts","Sweetness plus fiber and protein."]]},
+ {k:"food",re:/cake|pastr|muffin|croissant|donut|doughnut|brownie/,s:[["Wholegrain toast with nut butter","Slower energy, more protein and fiber."],["Plain yogurt with berries","Sweet, creamy, with protein."]]},
+ {k:"food",re:/chips|crisps|corn[- ]snack|puffs|salty[- ]snack/,s:[["Plain air-popped popcorn","Wholegrain and far lower in fat."],["Roasted chickpeas","Crunchy, with protein and fiber."],["Unsalted nuts","Healthy fats without the added salt."]]},
+ {k:"food",re:/candy|candies|confectioner|gumm|sweets|lollipop/,s:[["Dried fruit, no added sugar","Natural sweetness with fiber."],["Frozen grapes or berries","A sweet bite with vitamins and fiber."]]},
+ {k:"food",re:/chocolate/,s:[["Dark chocolate, 70% cocoa or more","Less sugar, more cocoa."],["Cocoa-dusted almonds","The chocolate hit with protein and fiber."]]},
+ {k:"food",re:/ice[- ]cream|frozen[- ]dessert/,s:[["Frozen banana blended smooth","Creamy ‘nice cream’ with no added sugar."],["Frozen plain yogurt with fruit","Less sugar, more protein."]]},
+ {k:"food",re:/yogh?urt|dairy[- ]dessert|pudding/,s:[["Plain yogurt with fresh fruit","Same creaminess without the added sugar."],["Plain skyr or Greek yogurt","More protein, no added sugar."]]},
+ {k:"food",re:/bread|\bbuns?\b|bagel|tortilla|\bwraps?\b/,s:[["100% wholegrain bread","More fiber; look for whole grain as the first ingredient."],["Sourdough rye","Slower energy release and more fiber."]]},
+ {k:"food",re:/instant[- ]noodle|ramen|cup[- ]noodle/,s:[["Wholewheat or buckwheat noodles with vegetables","Same quick meal with far less salt."],["Plain rice noodles with your own broth","You control the salt."]]},
+ {k:"food",re:/pasta|spaghetti|macaroni/,s:[["Wholewheat pasta","About twice the fiber."],["Lentil or chickpea pasta","More protein and fiber."]]},
+ {k:"food",re:/sausage|bacon|\bham\b|salami|hot[- ]dog|processed[- ]meat|deli|cured|charcuterie|pepperoni|bologna|jerky/,s:[["Fresh chicken or turkey breast","Lean protein without nitrites."],["Beans, lentils or tofu","Protein and fiber with no processed-meat risk."],["Canned fish in water","Protein and omega-3s."]]},
+ {k:"food",re:/pizza/,s:[["Homemade wholegrain flatbread pizza","Load with vegetables and go easy on cheese."],["Thin-crust vegetable pizza","Usually less salt and saturated fat."]]},
+ {k:"food",re:/ready[- ]meal|frozen[- ]meal|microwave|meals/,s:[["Batch-cooked meals frozen at home","You control the salt and additives."],["Frozen vegetables with a simple protein","Fast and minimally processed."]]},
+ {k:"food",re:/ketchup|sauce|dressing|mayonnaise|condiment/,s:[["Olive oil with lemon or vinegar","Simple dressing with no additives."],["Plain tomato passata with herbs","Tomato flavor without the added sugar."],["Plain yogurt with herbs","A creamy dip with protein."]]},
+ {k:"food",re:/peanut[- ]butter|nut[- ]butter/,s:[["Peanut butter made from 100% peanuts","No added sugar, salt or palm oil."]]},
+ {k:"food",re:/margarine|\bspreads?\b|\bbutter\b/,s:[["Extra-virgin olive oil","Mostly healthy unsaturated fat."],["Avocado or nut butter on toast","Healthier fats and some fiber."]]},
+ {k:"food",re:/flavou?red[- ]milk|milk[- ]drink|milkshake|chocolate[- ]milk/,s:[["Plain milk with a little cocoa powder","Most of the flavor with much less sugar."]]},
+ {k:"food",re:/soup/,s:[["Lower-sodium soup","Look for under 0.6 g salt per 100 ml."],["Homemade vegetable soup","You control the salt."]]},
+ {k:"food",re:/./,s:[["A version with a shorter ingredient list","Fewer additives usually means less processing."],["The same product in a no-added-sugar or low-salt version","Check the labels side by side."]]},
+ {k:"cosmetic",re:/deodorant|antiperspirant/,s:[["Aluminium-free deodorant","Controls odor without blocking sweat glands."],["Fragrance-free deodorant","Less risk of skin allergy."]]},
+ {k:"cosmetic",re:/\bsun|spf/,s:[["Mineral sunscreen with zinc oxide","Broad protection without oxybenzone or octinoxate."]]},
+ {k:"cosmetic",re:/shampoo|conditioner|hair/,s:[["Sulphate-free, fragrance-free shampoo","Gentler on scalp and skin."]]},
+ {k:"cosmetic",re:/toothpaste|dental|mouthwash/,s:[["Toothpaste without triclosan or SLS","Fluoride protection without the irritants."]]},
+ {k:"cosmetic",re:/./,s:[["The fragrance-free version","Fragrance is the most common cause of cosmetic allergies."],["A product with fewer ingredients","Fewer chances of an irritant or risky preservative."]]}
+];
+function swapsFor(p){
+  const hay=[...(p.categories||[]),p.catText||"",p.name||""].join(" ").toLowerCase().replace(/en:/g," ");
+  const hit=SWAPS.find(x=>x.k===p.kind&&x.re.test(hay));
+  return hit?hit.s:[];
+}
+function swapsHTML(p){
+  const s=swapsFor(p); if(!s.length) return "";
+  return s.map(([n,w])=>`<div class="row"><span class="mini" style="background:var(--brand)">↗</span><div class="t"><b>${esc(n)}</b><span>${esc(w)}</span></div></div>`).join("")+
+    `<div class="row"><div class="t"><span style="font-size:12.5px">General suggestions for this kind of product.</span></div></div>`;
+}
+
+/* ---------- USDA FoodData Central (backup database) ---------- */
+let usdaLimited=false;
+const stripZeros=c=>String(c||"").replace(/^0+/,"");
+async function fetchUSDA(code){
+  const key=(profile.usdaKey||"").trim()||"DEMO_KEY";
+  const qs=[code,stripZeros(code)].filter((v,i,a)=>v&&a.indexOf(v)===i);
+  for(const q of qs){
+    const r=await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(key)}&dataType=Branded&pageSize=10&query=${encodeURIComponent(q)}`);
+    if(r.status===429||r.status===403){ usdaLimited=true; return null; }
+    if(!r.ok) continue;
+    const j=await r.json();
+    const hit=(j.foods||[]).find(f=>f.gtinUpc&&stripZeros(f.gtinUpc)===stripZeros(code));
+    if(hit) return hit;
+  }
+  return null;
+}
+const titleCase=s=>String(s||"").toLowerCase().replace(/\b([a-z])/g,m=>m.toUpperCase());
+function mapUSDA(f,code){
+  const by={}; (f.foodNutrients||[]).forEach(n=>{ by[String(n.nutrientNumber)]=n; });
+  const v=num=>by[num]&&by[num].value!=null&&!isNaN(+by[num].value)?+by[num].value:null;
+  let kcal=v("208"); if(kcal==null&&v("268")!=null) kcal=Math.round(v("268")/4.184);
+  const sodium=v("307");
+  const per100={energy_kcal:kcal,fat_g:v("204"),sat_fat_g:v("606"),sugars_g:v("269"),salt_g:sodium!=null?Math.round(sodium*2.5)/1000:null,fiber_g:v("291"),protein_g:v("203"),fruit_veg_pct:0};
+  const cat=f.brandedFoodCategory||"", ing=f.ingredients||"";
+  const unit=String(f.servingSizeUnit||"").toLowerCase();
+  const tags=inferTags(ing);
+  const item={kind:"food",barcode:code,source:"usda",name:titleCase(f.description)||`Product ${code}`,brand:titleCase(f.brandName||f.brandOwner||""),image:"",
+    categories:[],catText:cat,is_beverage:/^ml|mlt/.test(unit)||/beverage|drink|soda|juice|water|tea\b|coffee/i.test(cat),
+    organic:/organic/i.test(f.description||""),serving_g:+f.servingSize>0&&/^(g|grm|ml|mlt)/.test(unit)?+f.servingSize:null,serving_label:f.householdServingFullText||"",
+    per100,additives:parseAdditives(ing),alternatives:[],nova:null,...tags,labels:[],tagsKnown:!!ing,inferred:true,hasIngredients:!!ing,
+    offUrl:`https://fdc.nal.usda.gov/fdc-app.html#/food-details/${f.fdcId}/nutrients`};
+  item.nodata=per100.energy_kcal==null||(per100.sugars_g==null&&per100.sat_fat_g==null&&per100.salt_g==null);
+  if(!item.nodata) item.summary=foodSummary(item);
+  return item;
+}
+
+/* ---------- reading a nutrition panel on the phone ---------- */
+async function ocrImage(file,maxSide){
+  if(!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
+  const bmp=await createImageBitmap(file); const k=Math.min(1,(maxSide||2000)/Math.max(bmp.width,bmp.height));
+  const c=document.createElement("canvas"); c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k);
+  c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);
+  const {data}=await Tesseract.recognize(c,"eng");
+  return data.text||"";
+}
+function parseNutrition(raw){
+  const text=String(raw||"").replace(/[|]/g," ").replace(/(\d),(\d)/g,"$1.$2").replace(/\bO(?=\s?g\b)/g,"0");
+  const lines=text.split(/\n/).map(l=>l.trim()).filter(Boolean), vals={};
+  const withUnit=(l,units)=>{ const m=l.match(new RegExp("(\\d+(?:\\.\\d+)?)\\s*("+units+")\\b","i")); return m?+m[1]:null; };
+  for(const line of lines){
+    const l=line.toLowerCase();
+    if(/satur/.test(l)){ if(vals.sat==null) vals.sat=withUnit(l,"g"); }
+    else if(/\btrans\b/.test(l)){}
+    else if(/(\bfat\b|lipides|graisses|matières grasses)/.test(l)){ if(vals.fat==null) vals.fat=withUnit(l,"g"); }
+    else if(/sugar|sucres/.test(l)){ if(vals.sugars==null) vals.sugars=withUnit(l,"g"); }
+    else if(/fib(re|er)/.test(l)){ if(vals.fiber==null) vals.fiber=withUnit(l,"g"); }
+    else if(/protein|prot[eé]ines/.test(l)){ if(vals.protein==null) vals.protein=withUnit(l,"g"); }
+    else if(/sodium/.test(l)){ if(vals.sodium==null){ const mg=withUnit(l,"mg"); vals.sodium=mg!=null?mg:(withUnit(l,"g")!=null?withUnit(l,"g")*1000:null); } }
+    else if(/\bsalt\b|\bsel\b/.test(l)){ if(vals.salt==null) vals.salt=withUnit(l,"g"); }
+    if(vals.kcal==null){ if(/kcal/.test(l)) vals.kcal=withUnit(l,"kcal"); else { const m=l.match(/calories\s*[:\/]?\s*(\d+)/); if(m) vals.kcal=+m[1]; } }
+  }
+  const sm=text.match(/(?:serving size|per|pour|portion)[^\n(]{0,40}\((\d+(?:\.\d+)?)\s*(g|ml)\s*\)/i)||text.match(/serving size[^\d\n]{0,20}(\d+(?:\.\d+)?)\s*(g|ml)\b/i);
+  const per100=/(per|pour|par)\s*100\s*(g|ml)/i.test(text);
+  return {vals,per:per100?"100":"serving",serving:sm?+sm[1]:null,bev:sm?/ml/i.test(sm[2]):/\b100\s*ml\b/i.test(text)};
+}
+function extractIngredients(raw){
+  let t=String(raw||"").replace(/-\n/g,"").replace(/\n/g," ");
+  const i=t.search(/ingr[eé]dients?\s*[:\/]/i); if(i>=0) t=t.slice(i).replace(/^ingr[eé]dients?\s*[:\/]\s*/i,"");
+  return t.trim().slice(0,1500);
+}
+let draft=null;
+function openDraft(d){ draft={per:"serving",vals:{},name:"",ingredients:"",bev:false,serving:null,...d}; renderDraft(); }
+function renderDraft(){
+  const d=draft, f=(k,label,unit)=>`<label class="frow"><span>${label}</span><input inputmode="decimal" data-f="${k}" value="${d.vals[k]??""}" placeholder="–"><em>${unit}</em></label>`;
+  $("vResult").innerHTML=`${backBtn("Cancel")}
+    <h1 style="font-size:28px">Check the numbers</h1><p class="lede">${esc(d.note||"Fill in what the label shows. Leave anything you can’t find empty.")}</p>
+    <div class="gcard">
+      <label class="frow wide"><span>Name</span><input data-f="name" value="${esc(d.name)}" placeholder="Product name"></label>
+      <div class="frow"><span>Values are</span><div class="seg small" role="group" aria-label="Values basis">
+        <button data-per="serving" aria-pressed="${d.per==="serving"}">Per serving</button><button data-per="100" aria-pressed="${d.per==="100"}">Per 100 g/ml</button></div></div>
+      ${d.per==="serving"?`<label class="frow"><span>Serving size</span><input inputmode="decimal" data-f="serving" value="${d.serving??""}" placeholder="–"><em>g or ml</em></label>`:""}
+      <label class="frow"><span>It’s a drink</span><input type="checkbox" data-f="bev" ${d.bev?"checked":""} style="width:22px;height:22px"></label>
+      ${f("kcal","Calories","kcal")}${f("fat","Fat","g")}${f("sat","Saturated fat","g")}${f("sugars","Sugars","g")}
+      ${f("sodium","Sodium","mg")}${f("salt","or Salt","g")}${f("fiber","Fiber","g")}${f("protein","Protein","g")}
+    </div>
+    <div class="sec"><h2>Ingredients</h2><textarea class="search" data-f="ingredients" rows="5" placeholder="Paste or photograph the ingredient list">${esc(d.ingredients)}</textarea>
+      <button class="ghost" id="ocrIngBtn" style="margin-top:4px">Photograph the ingredient list</button></div>
+    <div class="err hide" id="draftErr" role="alert"></div>
+    <button class="primary wide" id="draftSave">Score it</button>`;
+  lastView="scan"; show("vResult");
+}
+$("vResult").addEventListener("input",e=>{
+  if(!draft) return; const k=e.target.dataset.f; if(!k) return;
+  if(k==="name") draft.name=e.target.value; else if(k==="ingredients") draft.ingredients=e.target.value;
+  else if(k==="bev") draft.bev=e.target.checked; else if(k==="serving") draft.serving=e.target.value===""?null:+e.target.value.replace(",",".");
+  else draft.vals[k]=e.target.value===""?null:+e.target.value.replace(",",".");
+});
+function saveDraft(){
+  const d=draft, v=d.vals, err=t=>{ $("draftErr").textContent=t; $("draftErr").classList.remove("hide"); };
+  if(v.kcal==null||isNaN(v.kcal)) return err("Calories are needed to score a product.");
+  if(v.sugars==null&&v.sat==null&&v.salt==null&&v.sodium==null) return err("Add at least sugars, saturated fat or sodium.");
+  let f=1; if(d.per==="serving"){ if(!(d.serving>0)) return err("Add the serving size in grams or ml, shown at the top of the label."); f=100/d.serving; }
+  const sc=x=>x==null||isNaN(x)?null:Math.round(x*f*100)/100;
+  const salt=v.salt!=null?v.salt:(v.sodium!=null?v.sodium*2.5/1000:null);
+  const ing=d.ingredients||"", tags=inferTags(ing);
+  const item={kind:"food",source:d.source||"manual",barcode:d.barcode||undefined,name:d.name||(d.barcode?`Product ${d.barcode}`:"My product"),brand:"",image:"",
+    categories:[],catText:d.name||"",is_beverage:!!d.bev,organic:/organic/i.test(d.name||""),serving_g:d.serving||null,serving_label:"",
+    per100:{energy_kcal:sc(v.kcal),fat_g:sc(v.fat),sat_fat_g:sc(v.sat),sugars_g:sc(v.sugars),salt_g:sc(salt),fiber_g:sc(v.fiber),protein_g:sc(v.protein),fruit_veg_pct:0},
+    additives:parseAdditives(ing),alternatives:[],...tags,labels:[],tagsKnown:!!ing,inferred:true,hasIngredients:!!ing,
+    id:"own-"+(d.barcode||Date.now()),savedAt:Date.now()};
+  item.summary=foodSummary(item);
+  draft=null; store.add(item);
+  if(compareBase) renderCompare(compareBase,item); else renderResult(item,"scan");
+}
+let nutTarget=null;
+function startFoodOcr(code,name,ingredients){ nutTarget={code,name,ingredients}; $("nutIn").click(); }
+$("nutIn").addEventListener("change",async e=>{
+  const f=e.target.files[0]; e.target.value=""; if(!f) return;
+  show("vLoading"); $("loadTitle").textContent="Reading the nutrition panel…"; $("loadMsg").textContent="This happens on your phone. The first time takes a little longer.";
+  try{
+    const raw=await ocrImage(f,2200); const p=parseNutrition(raw);
+    const found=Object.values(p.vals).filter(x=>x!=null).length;
+    const ingFromPhoto=/ingr[eé]dients?\s*[:\/]/i.test(raw)?extractIngredients(raw):"";
+    openDraft({barcode:nutTarget?.code,name:nutTarget?.name||"",ingredients:nutTarget?.ingredients||ingFromPhoto,source:"ocr",
+      per:p.per,serving:p.serving,bev:p.bev,vals:p.vals,
+      note:found>=3?"Here’s what Wiselabel read from your photo. Check each number against the label and fix anything that’s off.":"Only part of the label could be read. Fill in the rest from the pack."});
+  }catch(err){ openDraft({barcode:nutTarget?.code,name:nutTarget?.name||"",ingredients:nutTarget?.ingredients||"",source:"manual",
+      note:navigator.onLine?"The label couldn’t be read. You can type the numbers in instead.":"The label reader needs an internet connection the first time. You can type the numbers in instead."}); }
+});
+$("ingIn").addEventListener("change",async e=>{
+  const f=e.target.files[0]; e.target.value=""; if(!f||!draft) return;
+  const btn=$("ocrIngBtn"); if(btn){ btn.textContent="Reading…"; btn.disabled=true; }
+  try{ const raw=await ocrImage(f,2200); draft.ingredients=extractIngredients(raw); }catch(err){}
+  renderDraft();
+});
 
 </script>
 </body>
