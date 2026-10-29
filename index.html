@@ -252,6 +252,10 @@ td.win{color:var(--ex);font-weight:800}
 .frow em{font-style:normal;color:var(--muted);font-size:13px;width:34px}
 textarea.search{font:inherit;color:inherit;resize:vertical;line-height:1.4}
 .keyin{width:100%;border:1.5px solid var(--line);background:var(--bg);border-radius:10px;padding:9px 10px;margin-top:8px;font:inherit;color:inherit}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:40;max-width:min(440px,calc(100% - 32px));
+  background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.version{text-align:center;font-size:12px;color:var(--muted);margin:22px 0 0}
 </style>
 </head>
 <body>
@@ -280,6 +284,7 @@ textarea.search{font:inherit;color:inherit;resize:vertical;line-height:1.4}
     <input type="file" accept="image/*" capture="environment" id="ocrIn" class="hidden-input" aria-hidden="true" tabindex="-1">
     <input type="file" accept="image/*" capture="environment" id="nutIn" class="hidden-input" aria-hidden="true" tabindex="-1">
     <input type="file" accept="image/*" capture="environment" id="ingIn" class="hidden-input" aria-hidden="true" tabindex="-1">
+    <input type="file" accept="image/*" capture="environment" id="frontIn" class="hidden-input" aria-hidden="true" tabindex="-1">
     <div class="or">or</div>
     <form class="field" id="codeForm" onsubmit="return false">
       <input id="codeIn" type="text" inputmode="numeric" placeholder="Type the barcode number" autocomplete="off" aria-label="Barcode number">
@@ -305,6 +310,8 @@ textarea.search{font:inherit;color:inherit;resize:vertical;line-height:1.4}
   <section id="vStandards" class="hide"></section>
   <section id="vProfile" class="hide"></section>
 </div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <div class="scanner" id="scanner" role="dialog" aria-label="Product scanner" hidden>
   <video id="video" playsinline muted autoplay></video>
@@ -662,7 +669,8 @@ const SOURCES=[
  "IARC Monographs classifications (incl. aspartame 2023, talc 2024)",
  "EU Cosmetics Regulation 1223/2009, Annexes II, III and V, with later amendments",
  "Product data: Open Food Facts and Open Beauty Facts (Open Database License)",
- "Backup product data: USDA FoodData Central, Branded Foods (public domain)"
+ "Backup product data: USDA FoodData Central, Branded Foods (public domain)",
+ "Optional extra product data: Spoonacular (free plan) and Edamam Food Database API, with your own keys"
 ];
 
 
@@ -900,7 +908,7 @@ function renderResult(p,from){
   const {bad,good,per}=p.kind==="cosmetic"?cosmeticRows(p,sc):foodRows(p,sc);
   const src={database:`From ${p.kind==="cosmetic"?"Open Beauty Facts":"Open Food Facts"}, a free public database. If something looks off, check the pack.`,
     ocr:p.kind==="cosmetic"?"Read from your photo, on this phone. Check spelling if an ingredient looks off.":"Read from your photo of the label and checked by you.",
-    usda:"From USDA FoodData Central, as reported by the brand.",manual:"Entered by you from the label.",example:"Example product with typical values."}[p.source]||"";
+    usda:"From USDA FoodData Central, as reported by the brand.",spoon:"From Spoonacular’s product database.",edamam:"From Edamam’s food database, as listed on the product’s label.",manual:"Entered by you from the label.",example:"Example product with typical values."}[p.source]||"";
   const tags=[];
   if(p.kind==="food") tags.push(`<span class="tag"><i style="background:${COLORS[{A:"ex",B:"good",C:"poor",D:"poor",E:"bad"}[sc.grade]]}"></i>Nutri-Score ${sc.grade}</span>`);
   if(p.nova&&NOVA[p.nova]) tags.push(`<span class="tag"><i style="background:${COLORS[NOVA[p.nova][0]]}"></i>${NOVA[p.nova][1]}</span>`);
@@ -916,7 +924,7 @@ function renderResult(p,from){
       <span class="verdict"><span class="dot" style="background:${COLORS[b.k]}"></span>${b.label}</span>
       <div>${tags.join("")}</div></div></div>
     ${p.summary?`<p class="summary">${esc(p.summary)}</p>`:""}
-    <p class="source">${esc(src)}</p>
+    <p class="source">${esc(src)}${p.source==="edamam"?` <a href="https://developer.edamam.com" target="_blank" rel="noopener" style="color:inherit;font-weight:600">Powered by Edamam</a>`:""}${p.source==="spoon"?` <a href="https://spoonacular.com/food-api" target="_blank" rel="noopener" style="color:inherit;font-weight:600">Powered by spoonacular</a>`:""}</p>
     ${bad.length?`<div class="sec"><h2>${p.kind==="cosmetic"?"Ingredients of concern":"Concerns"} ${per?`<span style="font-weight:500">${per}</span>`:""}</h2><div class="rows">${bad.join("")}</div></div>`:""}
     ${good.length?`<div class="sec"><h2>${p.kind==="cosmetic"?"Everything else":"Good points"} ${per&&!bad.length?`<span style="font-weight:500">${per}</span>`:""}</h2><div class="rows">${good.join("")}</div></div>`:""}
     ${p.kind==="cosmetic"?cosmeticRegHTML(sc):guideHTML(p)}
@@ -1055,12 +1063,26 @@ function openProfile(){
       ${standalone?"":`<div class="setrow"><div class="t"><b>Install Wiselabel</b><span style="display:block;font-size:13px;color:var(--muted)">${installEvt?"Adds it to your home screen as a full-screen app that works offline.":"In Chrome, open the ⋮ menu and choose Install app or Add to Home screen."}</span></div>${installEvt?`<button class="primary" id="installBtn">Install</button>`:""}</div>`}
       <div class="setrow" style="display:block"><div class="t"><b>USDA backup database key</b><span style="display:block;font-size:13px;color:var(--muted)">Optional. Without a key, lookups share a small public allowance. A free key from <a href="https://api.data.gov/signup/" target="_blank" rel="noopener" style="color:inherit">api.data.gov</a> takes a minute and lifts the limit.</span></div>
         <input class="keyin" id="usdaKey" type="text" autocomplete="off" spellcheck="false" placeholder="Paste your key" value="${esc(profile.usdaKey||"")}"></div>
+      <div class="setrow" style="display:block"><div class="t"><b>Open Food Facts account</b><span style="display:block;font-size:13px;color:var(--muted)">Free. Lets Wiselabel add products you photograph to Open Food Facts, so they work instantly on Noel’s phone and for everyone. <a href="https://world.openfoodfacts.org/cgi/user.pl" target="_blank" rel="noopener" style="color:inherit">Create an account</a>, then enter it here. Use a password you don’t use anywhere else, since it’s saved on this phone.${profile.contribs?` You’ve added ${profile.contribs} product${profile.contribs>1?"s":""} so far.`:""}</span></div>
+        <input class="keyin" id="offUser" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Username" value="${esc(profile.offUser||"")}">
+        <input class="keyin" id="offPass" type="password" autocomplete="current-password" placeholder="Password" value="${esc(profile.offPass||"")}"></div>
+      <div class="setrow" style="display:block"><div class="t"><b>Spoonacular extra database</b><span style="display:block;font-size:13px;color:var(--muted)">Optional and free. A smaller, mostly American product list, checked after USDA. <a href="https://spoonacular.com/food-api/console#Dashboard" target="_blank" rel="noopener" style="color:inherit">Sign up for the free plan</a>, then paste your API key. The free plan covers a few dozen lookups a day.</span></div>
+        <input class="keyin" id="spoonKey" type="text" autocomplete="off" spellcheck="false" placeholder="API key" value="${esc(profile.spoonKey||"")}"></div>
+      <div class="setrow" style="display:block"><div class="t"><b>Edamam extra database</b><span style="display:block;font-size:13px;color:var(--muted)">Optional and paid. Adds about 680,000 more barcodes, including many brands sold in Canada. Sign up at <a href="https://developer.edamam.com/food-database-api" target="_blank" rel="noopener" style="color:inherit">developer.edamam.com</a>, choose the Food Database API, and paste your Application ID and Key. Check the plan’s price and limits when you sign up.</span></div>
+        <input class="keyin" id="edamamId" type="text" autocomplete="off" spellcheck="false" placeholder="Application ID" value="${esc(profile.edamamId||"")}">
+        <input class="keyin" id="edamamKey" type="text" autocomplete="off" spellcheck="false" placeholder="Application Key" value="${esc(profile.edamamKey||"")}"></div>
       <div class="setrow"><div class="t"><b>Clear history</b><span style="display:block;font-size:13px;color:var(--muted)">${store.all().length} saved products</span></div><button class="ghost" id="clearBtn" style="margin:0">Clear</button></div>
     </div></div>
-    <p class="disclaimer">Wiselabel stores everything on this phone. The only thing it sends anywhere is the barcode number, to Open Food Facts and USDA FoodData Central, to look the product up.</p>`;
+    <p class="disclaimer">Wiselabel stores everything on this phone. The only thing it sends anywhere is the barcode number, to Open Food Facts and USDA FoodData Central (and Spoonacular or Edamam, if you’ve added keys), to look the product up. If you’ve added an Open Food Facts account, products you photograph are shared there.</p>
+    <p class="version">Wiselabel 1.4 · October 29, 2026</p>`;
   show("vProfile");
 }
-$("vProfile").addEventListener("change",e=>{ if(e.target.id==="usdaKey"){ profile.usdaKey=e.target.value.trim(); saveProfile(); usdaLimited=false; } });
+$("vProfile").addEventListener("change",e=>{
+  if(e.target.id==="usdaKey"){ profile.usdaKey=e.target.value.trim(); saveProfile(); usdaLimited=false; }
+  if(e.target.id==="edamamId"||e.target.id==="edamamKey"){ profile[e.target.id]=e.target.value.trim(); saveProfile(); edamamProblem=null; }
+  if(e.target.id==="spoonKey"){ profile.spoonKey=e.target.value.trim(); saveProfile(); spoonProblem=null; }
+  if(e.target.id==="offUser"||e.target.id==="offPass"){ profile[e.target.id]=e.target.id==="offUser"?e.target.value.trim():e.target.value; saveProfile(); }
+});
 $("vProfile").addEventListener("click",async e=>{
   const c=e.target.closest("[data-pk]");
   if(c){ const k=c.dataset.pk, v=c.dataset.pv, l=profile[k]; profile[k]=l.includes(v)?l.filter(x=>x!==v):[...l,v]; saveProfile(); c.setAttribute("aria-pressed",profile[k].includes(v)); return; }
@@ -1236,6 +1258,10 @@ async function getItem(code){
   {
     const f=await fetchUSDA(code).catch(()=>null);
     if(f){ const item=mapUSDA(f,code); if(item.nodata) return {nodata:item}; item.id="scan-"+code; item.savedAt=Date.now(); store.add(item); return {item}; }
+    const sp=await fetchSpoon(code).catch(()=>null);
+    if(sp){ const item=mapSpoon(sp,code); if(!item.nodata){ item.id="scan-"+code; item.savedAt=Date.now(); store.add(item); return {item}; } }
+    const ed=await fetchEdamam(code).catch(()=>null);
+    if(ed){ const item=mapEdamam(ed,code); if(item.nodata) return {nodata:item}; item.id="scan-"+code; item.savedAt=Date.now(); store.add(item); return {item}; }
   }
   return {notfound:true};
 }
@@ -1251,10 +1277,12 @@ async function lookup(code){
       if(it.kind==="food"){ renderMessage(it.name,"This product is in the database, but its nutrition table hasn’t been filled in yet. Photograph the label and Wiselabel will read it, then remember it for next time.",foodBtns); return; }
       renderMessage(it.name,"This product is in Open Beauty Facts, but its ingredient list hasn’t been filled in yet.",ocrBtn); return; }
     lastNodata=null;
-    const limitNote=usdaLimited?" The backup database is busy right now. Adding your own free key in Profile fixes that.":"";
+    const limitNote=(usdaLimited?" The USDA backup database is busy right now. Adding your own free key in Profile fixes that.":"")+
+      (edamamProblem==="key"?" Your Edamam keys were rejected. Check them in Profile.":edamamProblem==="limit"?" You’ve reached your Edamam plan’s limit for now.":"")+
+      (spoonProblem==="key"?" Your Spoonacular key was rejected. Check it in Profile.":spoonProblem==="limit"?" Today’s free Spoonacular lookups are used up.":"");
     renderMessage("Not in the databases yet",(mode==="cosmetic"
         ?`Barcode ${code} isn’t in Open Beauty Facts or Open Food Facts. Photograph the ingredient list and Wiselabel will read it on your phone.`
-        :`Barcode ${code} isn’t in Open Food Facts or USDA FoodData Central. Photograph the nutrition label and Wiselabel will read it, then remember it next time you scan.`)+limitNote,
+        :`Barcode ${code} isn’t in Open Food Facts${profile.edamamId&&profile.edamamKey?", USDA FoodData Central or Edamam":" or USDA FoodData Central"}. Photograph the nutrition label and Wiselabel will read it, then remember it next time you scan.`)+limitNote,
       (mode==="cosmetic"?ocrBtn.replace("ghost","primary")+`<button class="ghost" data-ocrfood="${code}">It’s food: read the nutrition label</button>`:foodBtns+ocrBtn)+
       `<a class="ghost" style="text-decoration:none;text-align:center;color:inherit" href="https://world.openfoodfacts.org/cgi/product.pl?type=add&code=${code}" target="_blank" rel="noopener">Add it to Open Food Facts for everyone</a>`);
   }catch(e){
@@ -1284,6 +1312,7 @@ $("ocrIn").addEventListener("change",async e=>{
     item.summary=cosSummary(item);
     store.add(item);
     if(compareBase) renderCompare(compareBase,item); else renderResult(item,"scan");
+    if(ocrCode&&offReady()) contribute({kind:"cosmetic",barcode:ocrCode,name:"",ingredients:ings.map(i=>i.name).join(", "),ingBlob:f});
   }catch(err){ showErr(navigator.onLine?"The text reader couldn’t run. Try again.":"The text reader needs an internet connection the first time."); }
 });
 $("ocrStart").onclick=e=>{ e.preventDefault(); mode==="cosmetic"?startOcr(null):startFoodOcr(null); };
@@ -1487,7 +1516,7 @@ function extractIngredients(raw){
   return t.trim().slice(0,1500);
 }
 let draft=null;
-function openDraft(d){ draft={per:"serving",vals:{},name:"",ingredients:"",bev:false,serving:null,...d}; renderDraft(); }
+function openDraft(d){ draft={per:"serving",vals:{},name:"",ingredients:"",bev:false,serving:null,share:offReady(),...d}; renderDraft(); }
 function renderDraft(){
   const d=draft, f=(k,label,unit)=>`<label class="frow"><span>${label}</span><input inputmode="decimal" data-f="${k}" value="${d.vals[k]??""}" placeholder="–"><em>${unit}</em></label>`;
   $("vResult").innerHTML=`${backBtn("Cancel")}
@@ -1502,7 +1531,12 @@ function renderDraft(){
       ${f("sodium","Sodium","mg")}${f("salt","or Salt","g")}${f("fiber","Fiber","g")}${f("protein","Protein","g")}
     </div>
     <div class="sec"><h2>Ingredients</h2><textarea class="search" data-f="ingredients" rows="5" placeholder="Paste or photograph the ingredient list">${esc(d.ingredients)}</textarea>
-      <button class="ghost" id="ocrIngBtn" style="margin-top:4px">Photograph the ingredient list</button></div>
+      <button class="ghost" id="ocrIngBtn" style="margin-top:4px">${d.ingBlob?"Retake the ingredient photo":"Photograph the ingredient list"}</button></div>
+    ${d.barcode?`<div class="sec"><h2>Share with Open Food Facts</h2><div class="gcard">
+      ${offReady()?`<label class="frow"><span>Add this product for everyone, including Noel’s phone</span><input type="checkbox" data-f="share" ${d.share?"checked":""} style="width:22px;height:22px"></label>
+        <div class="frow"><span style="font-weight:500;font-size:14px">${d.frontBlob?"Front photo added ✓":"A photo of the front helps others recognize it"}</span><button class="ghost" id="frontBtn" style="margin:0;padding:8px 12px">${d.frontBlob?"Retake":"Add photo"}</button></div>`
+      :`<p class="note" style="margin:0">Add a free Open Food Facts account in <b>Profile</b> and Wiselabel can share products you photograph, so they work instantly on every phone.</p>`}
+    </div></div>`:""}
     <div class="err hide" id="draftErr" role="alert"></div>
     <button class="primary wide" id="draftSave">Score it</button>`;
   lastView="scan"; show("vResult");
@@ -1510,7 +1544,7 @@ function renderDraft(){
 $("vResult").addEventListener("input",e=>{
   if(!draft) return; const k=e.target.dataset.f; if(!k) return;
   if(k==="name") draft.name=e.target.value; else if(k==="ingredients") draft.ingredients=e.target.value;
-  else if(k==="bev") draft.bev=e.target.checked; else if(k==="serving") draft.serving=e.target.value===""?null:+e.target.value.replace(",",".");
+  else if(k==="bev") draft.bev=e.target.checked; else if(k==="share") draft.share=e.target.checked; else if(k==="serving") draft.serving=e.target.value===""?null:+e.target.value.replace(",",".");
   else draft.vals[k]=e.target.value===""?null:+e.target.value.replace(",",".");
 });
 function saveDraft(){
@@ -1527,8 +1561,10 @@ function saveDraft(){
     additives:parseAdditives(ing),alternatives:[],...tags,labels:[],tagsKnown:!!ing,inferred:true,hasIngredients:!!ing,
     id:"own-"+(d.barcode||Date.now()),savedAt:Date.now()};
   item.summary=foodSummary(item);
+  const sub={...d,kind:"food",name:item.name,ingredients:ing};
   draft=null; store.add(item);
   if(compareBase) renderCompare(compareBase,item); else renderResult(item,"scan");
+  if(sub.share&&sub.barcode&&offReady()) contribute(sub);
 }
 let nutTarget=null;
 function startFoodOcr(code,name,ingredients){ nutTarget={code,name,ingredients}; $("nutIn").click(); }
@@ -1539,7 +1575,7 @@ $("nutIn").addEventListener("change",async e=>{
     const raw=await ocrImage(f,2200); const p=parseNutrition(raw);
     const found=Object.values(p.vals).filter(x=>x!=null).length;
     const ingFromPhoto=/ingr[eé]dients?\s*[:\/]/i.test(raw)?extractIngredients(raw):"";
-    openDraft({barcode:nutTarget?.code,name:nutTarget?.name||"",ingredients:nutTarget?.ingredients||ingFromPhoto,source:"ocr",
+    openDraft({barcode:nutTarget?.code,name:nutTarget?.name||"",ingredients:nutTarget?.ingredients||ingFromPhoto,source:"ocr",nutBlob:f,
       per:p.per,serving:p.serving,bev:p.bev,vals:p.vals,
       note:found>=3?"Here’s what Wiselabel read from your photo. Check each number against the label and fix anything that’s off.":"Only part of the label could be read. Fill in the rest from the pack."});
   }catch(err){ openDraft({barcode:nutTarget?.code,name:nutTarget?.name||"",ingredients:nutTarget?.ingredients||"",source:"manual",
@@ -1548,9 +1584,146 @@ $("nutIn").addEventListener("change",async e=>{
 $("ingIn").addEventListener("change",async e=>{
   const f=e.target.files[0]; e.target.value=""; if(!f||!draft) return;
   const btn=$("ocrIngBtn"); if(btn){ btn.textContent="Reading…"; btn.disabled=true; }
+  draft.ingBlob=f;
   try{ const raw=await ocrImage(f,2200); draft.ingredients=extractIngredients(raw); }catch(err){}
   renderDraft();
 });
+
+$("frontIn").addEventListener("change",e=>{ const f=e.target.files[0]; e.target.value=""; if(!f||!draft) return; draft.frontBlob=f; renderDraft(); });
+
+/* ---------- Edamam (optional extra database, your own keys) ---------- */
+let edamamProblem=null;
+const EDAMAM="https://api.edamam.com/api/food-database/v2";
+async function fetchEdamam(code){
+  const id=(profile.edamamId||"").trim(), key=(profile.edamamKey||"").trim();
+  if(!id||!key) return null;
+  const auth=`app_id=${encodeURIComponent(id)}&app_key=${encodeURIComponent(key)}`;
+  const r=await fetch(`${EDAMAM}/parser?${auth}&upc=${encodeURIComponent(code)}`);
+  if(r.status===401||r.status===403){ edamamProblem="key"; return null; }
+  if(r.status===429){ edamamProblem="limit"; return null; }
+  if(!r.ok) return null;
+  const j=await r.json();
+  const food=(j.hints&&j.hints[0]&&j.hints[0].food)||(j.parsed&&j.parsed[0]&&j.parsed[0].food);
+  if(!food) return null;
+  let tn=null;
+  try{
+    const r2=await fetch(`${EDAMAM}/nutrients?${auth}`,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ingredients:[{quantity:100,measureURI:"http://www.edamam.com/ontologies/edamam.owl#Measure_gram",foodId:food.foodId}]})});
+    if(r2.ok){ const j2=await r2.json(); tn=j2.totalNutrients||null; }
+  }catch(e){}
+  return {food,tn};
+}
+function mapEdamam(res,code){
+  const {food,tn}=res, n=food.nutrients||{};
+  const t=k=>tn&&tn[k]&&tn[k].quantity!=null?+tn[k].quantity:null;
+  const q=k=>t(k)??(n[k]!=null?+n[k]:null);
+  const r1=x=>x==null?null:Math.round(x*100)/100;
+  const ing=String(food.foodContentsLabel||"").replace(/;\s*/g,", ");
+  const tags=inferTags(ing);
+  const label=food.label||`Product ${code}`;
+  const per100={energy_kcal:r1(q("ENERC_KCAL")),fat_g:r1(q("FAT")),sat_fat_g:r1(t("FASAT")),sugars_g:r1(t("SUGAR")),
+    salt_g:t("NA")!=null?r1(t("NA")*2.5/1000):null,fiber_g:r1(q("FIBTG")),protein_g:r1(q("PROCNT")),fruit_veg_pct:0};
+  const item={kind:"food",barcode:code,source:"edamam",name:label,brand:food.brand||"",image:food.image||"",
+    categories:[],catText:[food.categoryLabel,label].filter(Boolean).join(" "),
+    is_beverage:/\b(drink|soda|juice|water|tea|coffee|beverage|cola|lemonade|kombucha)\b/i.test(label),
+    organic:/organic/i.test(label),serving_g:null,serving_label:"",per100,additives:parseAdditives(ing),alternatives:[],nova:null,
+    ...tags,labels:[],tagsKnown:!!ing,inferred:true,hasIngredients:!!ing,ingredientsText:ing.slice(0,1500)};
+  item.nodata=per100.energy_kcal==null||(per100.sugars_g==null&&per100.sat_fat_g==null&&per100.salt_g==null);
+  if(!item.nodata) item.summary=foodSummary(item);
+  return item;
+}
+
+/* ---------- Spoonacular (free tier, your own key) ---------- */
+let spoonProblem=null;
+async function fetchSpoon(code){
+  const key=(profile.spoonKey||"").trim(); if(!key) return null;
+  for(const c of [code,stripZeros(code)].filter((v,i,a)=>v&&a.indexOf(v)===i)){
+    const r=await fetch(`https://api.spoonacular.com/food/products/upc/${encodeURIComponent(c)}?apiKey=${encodeURIComponent(key)}`);
+    if(r.status===401||r.status===403){ spoonProblem="key"; return null; }
+    if(r.status===402||r.status===429){ spoonProblem="limit"; return null; }
+    if(!r.ok) continue;
+    const j=await r.json();
+    if(j&&j.id&&j.nutrition) return j;
+  }
+  return null;
+}
+function mapSpoon(j,code){
+  const nn={}; ((j.nutrition||{}).nutrients||[]).forEach(n=>{ nn[String(n.name).toLowerCase()]=n; });
+  const w=j.nutrition&&j.nutrition.weightPerServing&&+j.nutrition.weightPerServing.amount>0?+j.nutrition.weightPerServing.amount:null;
+  const f=w?100/w:null;
+  const g=name=>{ const n=nn[name]; if(!n||f==null) return null; let v=+n.amount; if(/mg/i.test(n.unit)) v=v/1000; return Math.round(v*f*100)/100; };
+  const sodiumG=g("sodium");
+  const per100={energy_kcal:g("calories"),fat_g:g("fat"),sat_fat_g:g("saturated fat"),sugars_g:g("sugar"),salt_g:sodiumG!=null?Math.round(sodiumG*2.5*1000)/1000:null,
+    fiber_g:g("fiber"),protein_g:g("protein"),fruit_veg_pct:0};
+  const ing=j.ingredientList||((j.ingredients||[]).map(x=>x.name).join(", "))||"";
+  const tags=inferTags(ing);
+  const name=j.title||`Product ${code}`;
+  const item={kind:"food",barcode:code,source:"spoon",name,brand:j.brand||"",image:j.image||(j.images&&j.images[0])||"",
+    categories:[],catText:[(j.breadcrumbs||[]).join(" "),name].join(" "),
+    is_beverage:/\b(drink|soda|juice|water|tea|coffee|beverage|cola|lemonade|kombucha)\b/i.test(name+" "+(j.breadcrumbs||[]).join(" ")),
+    organic:/organic/i.test(name)||(j.badges||[]).includes("organic"),serving_g:w,serving_label:"",per100,additives:parseAdditives(ing),alternatives:[],nova:null,
+    ...tags,labels:[],tagsKnown:!!ing,inferred:true,hasIngredients:!!ing,ingredientsText:ing.slice(0,1500)};
+  item.nodata=per100.energy_kcal==null||(per100.sugars_g==null&&per100.sat_fat_g==null&&per100.salt_g==null);
+  if(!item.nodata) item.summary=foodSummary(item);
+  return item;
+}
+
+/* ---------- sharing your label photos with Open Food Facts ---------- */
+function toast(text,ms){
+  const t=$("toast"); t.textContent=text; t.hidden=false;
+  clearTimeout(toast._t); if(ms) toast._t=setTimeout(()=>{ t.hidden=true; },ms);
+}
+async function jpeg(file,max){
+  const bmp=await createImageBitmap(file); const k=Math.min(1,(max||1600)/Math.max(bmp.width,bmp.height));
+  const c=document.createElement("canvas"); c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k);
+  c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);
+  return await new Promise(r=>c.toBlob(r,"image/jpeg",0.88));
+}
+async function offPost(host,path,body){
+  try{
+    const r=await fetch(`https://${host}${path}`,{method:"POST",body});
+    let j=null; try{ j=await r.json(); }catch(e){}
+    if(r.status===403||(j&&/password|authenticat|not logged/i.test(j.status_verbose||j.error||""))) return "auth";
+    return r.ok?"ok":"fail";
+  }catch(e){ return "unknown"; }   // the browser may hide the reply even when the upload worked
+}
+async function confirmOnOFF(host,code){
+  await new Promise(r=>setTimeout(r,2500));
+  try{ const r=await fetch(`https://${host}/api/v2/product/${code}.json?fields=product_name`); const j=await r.json(); return j&&j.status===1; }catch(e){ return false; }
+}
+async function contribute(d){
+  const host=d.kind==="cosmetic"?"world.openbeautyfacts.org":"world.openfoodfacts.org";
+  const site=d.kind==="cosmetic"?"Open Beauty Facts":"Open Food Facts";
+  toast(`Sending to ${site}…`);
+  const fd=new FormData();
+  fd.append("code",d.barcode); fd.append("user_id",profile.offUser); fd.append("password",profile.offPass);
+  fd.append("lang","en"); fd.append("comment","Added with Wiselabel from a label photo");
+  if(d.name&&!/^Product \d+$/.test(d.name)) fd.append("product_name_en",d.name);
+  if(d.ingredients) fd.append("ingredients_text_en",d.ingredients);
+  if(d.kind!=="cosmetic"){
+    const v=d.vals||{};
+    fd.append("nutrition_data_per",d.per==="100"?"100g":"serving");
+    if(d.per!=="100"&&d.serving) fd.append("serving_size",`${d.serving} ${d.bev?"ml":"g"}`);
+    const put=(k,val,unit)=>{ if(val!=null&&!isNaN(val)){ fd.append(`nutriment_${k}`,String(val)); fd.append(`nutriment_${k}_unit`,unit); } };
+    put("energy-kcal",v.kcal,"kcal"); put("fat",v.fat,"g"); put("saturated-fat",v.sat,"g"); put("sugars",v.sugars,"g");
+    put("fiber",v.fiber,"g"); put("proteins",v.protein,"g");
+    if(v.salt!=null) put("salt",v.salt,"g"); else if(v.sodium!=null) put("sodium",v.sodium,"mg");
+  }
+  const res=await offPost(host,"/cgi/product_jqm2.pl",fd);
+  if(res==="auth"){ toast(`${site} didn’t accept your login. Check it in Profile.`,6000); return; }
+  if(res==="fail"){ toast(`${site} couldn’t save it right now. It’s still saved on your phone.`,6000); return; }
+  const photos=[[d.frontBlob,"front"],[d.nutBlob,"nutrition"],[d.ingBlob,"ingredients"]].filter(x=>x[0]);
+  for(const [blob,field] of photos){
+    try{ const img=await jpeg(blob,1600); const pf=new FormData();
+      pf.append("code",d.barcode); pf.append("user_id",profile.offUser); pf.append("password",profile.offPass);
+      pf.append("imagefield",`${field}_en`); pf.append(`imgupload_${field}_en`,img,`${field}.jpg`);
+      await offPost(host,"/cgi/product_image_upload.pl",pf); }catch(e){}
+  }
+  const ok=res==="ok"||await confirmOnOFF(host,d.barcode);
+  if(ok){ profile.contribs=(profile.contribs||0)+1; saveProfile(); toast(`Added to ${site}. Thank you! Noel and everyone else can now find it.`,6000); }
+  else toast(`Sent to ${site}. It can take a few minutes to appear.`,6000);
+}
+const offReady=()=>!!(profile.offUser&&profile.offPass);
 
 </script>
 </body>

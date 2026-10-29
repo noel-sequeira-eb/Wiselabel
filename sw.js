@@ -1,5 +1,5 @@
 // Wiselabel service worker: keeps the app itself available offline.
-const CACHE = "wiselabel-v3";
+const CACHE = "wiselabel-v5";
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png",
@@ -24,7 +24,7 @@ self.addEventListener("fetch", e => {
   const url = new URL(req.url);
 
   // Live product data always comes from the network.
-  if (url.hostname === "api.nal.usda.gov" || (/open(food|beauty)facts\.org$/.test(url.hostname) && url.pathname.startsWith("/api/"))) return;
+  if (url.hostname === "api.nal.usda.gov" || url.hostname === "api.edamam.com" || url.hostname === "api.spoonacular.com" || url.pathname.startsWith("/cgi/") || (/open(food|beauty)facts\.org$/.test(url.hostname) && url.pathname.startsWith("/api/"))) return;
 
   // The app page: try the network first so updates arrive, fall back to the saved copy offline.
   if (req.mode === "navigate" || (url.origin === location.origin && url.pathname.endsWith(".html"))) {
