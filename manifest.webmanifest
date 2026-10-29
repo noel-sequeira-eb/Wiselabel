@@ -1,0 +1,16 @@
+{
+  "name": "Wiselabel",
+  "short_name": "Wiselabel",
+  "description": "Scan food and cosmetics barcodes for a health score out of 100.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3F7F4",
+  "theme_color": "#1F5C44",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
